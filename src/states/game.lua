@@ -25,6 +25,11 @@ function Game:enter(params)
     assert(self.fighter1, 'Fighter 1 must be provided to the game state')
     assert(self.fighter2, 'Fighter 2 must be provided to the game state')
 
+    -- Flash screen
+    self.flashStartTime = love.timer.getTime()
+    self.flashDuration = 0.8
+    self.flashActive = false
+
     -- AI setup (assuming fighter2 is controlled by AI)
     self.aiController = params.useAI and AIController:new(self.fighter2, self.fighter1) or nil
 
@@ -46,6 +51,7 @@ function Game:enter(params)
     self.gameOverFont = love.graphics.newFont(32)
     self.winnerFont = love.graphics.newFont(20)
     self.instructionsFont = love.graphics.newFont(16)
+    self.eventFont = love.graphics.newFont(20)
 end
 
 function Game:exit()
@@ -85,6 +91,14 @@ function Game:update(dt)
     self.fighter1:update(dt, self.fighter2)
     self.fighter2:update(dt, self.fighter1)
 
+    -- Flash logic
+    if self.fighter1.isClashing or self.fighter2.isClashing then
+        if not self.flashActive then
+            self.flashActive = true
+            self.flashStartTime = love.timer.getTime()
+        end
+    end
+
     -- Check for game over - leave this block last
     local hasFighterDied = self.fighter1.state == 'death' or self.fighter2.state == 'death'
     if hasFighterDied then
@@ -122,30 +136,24 @@ function Game:render()
     self.fighter1:render(self.fighter2)
     self.fighter2:render(self.fighter1)
 
+    -- Block
+    self:drawBlock()
+
+    -- Flash screen when fighters collide
+    self:drawFlash()
+
     -- Render health bars
     self:drawHealthBars()
+
+    -- Render recovery progress bars
+    self:drawRecoveryBars() 
 
     -- Render FFT visualizer
     self:drawFFT()
 
-    -- Render recovery progress bars
-    self:drawRecoveryBar(self.fighter1)
-    self:drawRecoveryBar(self.fighter2)
-
     -- Render game over screen if game is over
     if self.gameOver then
-        -- Apply semi-transparent red overlay
-        love.graphics.setColor(1, 0, 0, 0.5)
-        love.graphics.rectangle('fill', 0, 0, BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color to white
-
-        -- Render game over text
-        love.graphics.setFont(self.gameOverFont)
-        love.graphics.printf('Game Over', 0, BACKGROUND_FRAME_HEIGHT / 2 - 60, BACKGROUND_FRAME_WIDTH, 'center')
-        love.graphics.setFont(self.winnerFont)
-        love.graphics.printf(self.winner .. ' wins!', 0, BACKGROUND_FRAME_HEIGHT / 2 - 10, BACKGROUND_FRAME_WIDTH, 'center')
-        love.graphics.setFont(self.instructionsFont)
-        love.graphics.printf("Press 'ESC' to return to Main Menu", 0, BACKGROUND_FRAME_HEIGHT / 2 + 20, BACKGROUND_FRAME_WIDTH, 'center')
+        self:drawGameOverScreen()
     end
 
     -- Render FPS counter in the top right corner
@@ -157,28 +165,81 @@ function Game:render()
     end
 end
 
-function Game:drawRecoveryBar(fighter)
-    local currentTime = love.timer.getTime()
-    local lastAttackType = fighter.lastAttackType
+function Game:drawBlock()
+    if self.fighter1.isBlockingDamage then
+        love.graphics.setFont(self.eventFont)
+        love.graphics.setColor(1, 1, 0, 1)
+        love.graphics.print('Blocked', self.fighter1.x - 18, self.fighter1.y - 22)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+    end
 
-    -- Ensure lastAttackType exists in fighter.attacks
-    local recoveryDuration =
-        (lastAttackType and fighter.attacks[lastAttackType]) and fighter.attacks[lastAttackType].recovery or 0
-    local elapsedTime = currentTime - (fighter.recoveryEndTime - recoveryDuration)
-    local progress = math.min(elapsedTime / recoveryDuration, 1) -- Ensure progress doesn't exceed 1
+    if self.fighter2.isBlockingDamage then
+        love.graphics.setFont(self.eventFont)
+        love.graphics.setColor(1, 1, 0, 1)
+        love.graphics.print('Blocked', self.fighter2.x - 18, self.fighter2.y - 22)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+    end
+end
 
-    local barWidth = 44 -- Full width of the bar
-    local barHeight = 4
-    local x = fighter.id == 1 and 10 or love.graphics.getWidth() - 10 - barWidth
-    local y = 45 -- Position just under the stamina bar
+function Game:drawFlash()
+    if not self.flashActive then
+        return
+    end
 
-    love.graphics.setColor(1, 1, 1, 0.5) -- Background color
-    love.graphics.rectangle('fill', x, y, barWidth, barHeight)
+    local elapsedTime = love.timer.getTime() - self.flashStartTime
+    if elapsedTime < self.flashDuration then
+        local alpha = 1 - (elapsedTime / self.flashDuration) -- Fade out smoothly
+        love.graphics.setColor(1, 1, 1, alpha) -- White with decreasing opacity
+        love.graphics.rectangle("fill", 0, 0, BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+    else
+        self.flashActive = false
+    end
+end
 
-    love.graphics.setColor(1, 1, 1, 1) -- Progress color
-    love.graphics.rectangle('fill', x, y, barWidth * progress, barHeight)
+function Game:drawGameOverScreen()
+    -- Apply semi-transparent red overlay
+    love.graphics.setColor(1, 0, 0, 0.5)
+    love.graphics.rectangle('fill', 0, 0, BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT)
+    love.graphics.setColor(1, 1, 1, 1) -- Reset color to white
 
-    love.graphics.setColor(1, 1, 1, 1) -- Reset color
+    -- Render game over text
+    love.graphics.setFont(self.gameOverFont)
+    love.graphics.printf('Game Over', 0, BACKGROUND_FRAME_HEIGHT / 2 - 60, BACKGROUND_FRAME_WIDTH, 'center')
+    love.graphics.setFont(self.winnerFont)
+    love.graphics.printf(self.winner .. ' wins!', 0, BACKGROUND_FRAME_HEIGHT / 2 - 10, BACKGROUND_FRAME_WIDTH, 'center')
+    love.graphics.setFont(self.instructionsFont)
+    love.graphics.printf("Press 'ESC' to return to Main Menu", 0, BACKGROUND_FRAME_HEIGHT / 2 + 20, BACKGROUND_FRAME_WIDTH, 'center')
+end
+
+function Game:drawRecoveryBars()
+    local function drawRecoveryBar(fighter)
+        local currentTime = love.timer.getTime()
+        local lastAttackType = fighter.lastAttackType
+
+        -- Ensure lastAttackType exists in fighter.attacks
+        local recoveryDuration =
+            (lastAttackType and fighter.attacks[lastAttackType]) and fighter.attacks[lastAttackType].recovery or 0
+        local elapsedTime = currentTime - (fighter.recoveryEndTime - recoveryDuration)
+        local progress = math.min(elapsedTime / recoveryDuration, 1) -- Ensure progress doesn't exceed 1
+
+        local barWidth = 44 -- Full width of the bar
+        local barHeight = 4
+        local x = fighter.id == 1 and 10 or love.graphics.getWidth() - 10 - barWidth
+        local y = 45 -- Position just under the stamina bar
+
+        love.graphics.setColor(1, 1, 1, 0.5) -- Background color
+        love.graphics.rectangle('fill', x, y, barWidth, barHeight)
+
+        love.graphics.setColor(1, 1, 1, 1) -- Progress color
+        love.graphics.rectangle('fill', x, y, barWidth * progress, barHeight)
+
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+    end
+
+    -- Draw recovery bars for both fighters
+    drawRecoveryBar(self.fighter1)
+    drawRecoveryBar(self.fighter2)
 end
 
 function Game:buildBackground()

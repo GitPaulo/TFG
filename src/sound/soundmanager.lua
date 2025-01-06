@@ -12,19 +12,27 @@ function SoundManager:playSound(sound, params)
     local volume = params.volume or 1
     local pitch = params.pitch or 1
     local cloneSound = params.clone or false
+    local preventOverlap = params.preventOverlap or false
+
+    -- Prevent playing the same sound if it's already playing and preventOverlap is true
+    if preventOverlap and sound:isPlaying() then
+        return
+    end
+
+    -- print('playing sound', sound, delay, repeatCount, volume, pitch, preventOverlap)
 
     if cloneSound then
         sound = sound:clone()
     end
 
     if delay > 0 then
-        self:scheduleSound(sound, delay, repeatCount, volume, pitch)
+        self:scheduleSound(sound, delay, repeatCount, volume, pitch, preventOverlap)
     else
         self:executeSound(sound, repeatCount, volume, pitch)
     end
 end
 
-function SoundManager:scheduleSound(sound, delay, repeatCount, volume, pitch)
+function SoundManager:scheduleSound(sound, delay, repeatCount, volume, pitch, preventOverlap)
     local currentTime = love.timer.getTime()
     table.insert(
         self.scheduledSounds,
@@ -33,7 +41,8 @@ function SoundManager:scheduleSound(sound, delay, repeatCount, volume, pitch)
             sound = sound,
             repeatCount = repeatCount,
             volume = volume,
-            pitch = pitch
+            pitch = pitch,
+            preventOverlap = preventOverlap
         }
     )
 end
@@ -53,7 +62,10 @@ function SoundManager:update()
     for i = #self.scheduledSounds, 1, -1 do
         local soundData = self.scheduledSounds[i]
         if currentTime >= soundData.time then
-            self:executeSound(soundData.sound, soundData.repeatCount, soundData.volume, soundData.pitch)
+            -- Prevent playing if preventOverlap is enabled and sound is still playing
+            if not (soundData.preventOverlap and soundData.sound:isPlaying()) then
+                self:executeSound(soundData.sound, soundData.repeatCount, soundData.volume, soundData.pitch)
+            end
             table.remove(self.scheduledSounds, i)
         end
     end

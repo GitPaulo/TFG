@@ -81,9 +81,6 @@ function Fighter:init(
 
     -- Set the default animation to idle
     self.currentAnimation = self.animations.idle
-
-    -- Font
-    self.eventFont = love.graphics.newFont(20)
 end
 
 function Fighter:validateFighterParameters()
@@ -218,19 +215,15 @@ function Fighter:updateState(dt, other)
     local isHitPeriodOver = currentTime >= self.hitEndTime
     local isIdle = self.state == 'idle'
 
-    -- Check if active attack
-    if isAttacking then
-        self:checkAttackActivity(currentTime)
-    end
-
-    -- Check for clash
-    if not self.isClashing then
-        self:checkForClash(other)
-    end
-
     -- Handle knockback
     if self.knockbackActive or self.knockbackDelayTimer > 0 then
         self:checkForKnockback(dt)
+    end
+
+    -- Check if active attack
+    if isAttacking then
+        self:checkAttackActivity(currentTime)
+        self:checkForClash(other)
     end
 
     -- Transition from attacking to recovery if the attack period has ended
@@ -576,6 +569,7 @@ function Fighter:checkForKnockback(dt)
                 self:takeDamage(self.pendingDamage)
                 self.pendingDamage = nil
                 self.knockbackApplied = false
+                self.isClashing = false
             end
         else -- Move incrementally towards the target
             local knockbackStep = self.knockbackSpeed * dt * self.direction * -1 -- Move in the opposite direction
@@ -677,7 +671,7 @@ function Fighter:applyKnockback()
     self.lostClash = false -- Reset lost clash flag
 
     -- Play clash sound effect
-    SoundManager:playSound(self.sounds.clash, {clone = true})
+    SoundManager:playSound(self.sounds.clash, {preventOverlap = true})
 end
 
 function Fighter:winClash(loser)
@@ -705,8 +699,6 @@ function Fighter:render(other)
     if _G.isDebug then
         self:drawHitboxes(other)
     end
-    self:drawBlockingText()
-    self:drawClashText(other)
 end
 
 function Fighter:drawSprite()
@@ -776,43 +768,6 @@ function Fighter:drawHitboxes()
             'deathAnimationFinished:',
             self.deathAnimationFinished
         )
-    end
-end
-
-function Fighter:drawBlockingText()
-    if self.isBlockingDamage then
-        love.graphics.setFont(self.eventFont)
-        love.graphics.setColor(1, 1, 0, 1)
-        love.graphics.print('Blocked!', self.x - 18, self.y - 22)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
-    end
-end
-
-function Fighter:drawClashText(other)
-    local currentTime = love.timer.getTime()
-    local displayTime = 1 -- Display for 1 seconds
-    if self.isClashing and currentTime - self.clashTime < displayTime then
-        -- Draw "Clash!" between the two fighters
-        love.graphics.setFont(self.eventFont)
-        love.graphics.setColor(1, 1, 0, 1)
-        local clashX = (self.x + other.x) / 2
-        local clashY = math.min(self.y, other.y) - 20
-        love.graphics.printf('Clash!', clashX - 50, clashY, 100, 'center')
-
-        -- Draw "LOST" over the losing player
-        if _G.isDebug then
-            if self.lostClash then
-                love.graphics.setColor(1, 0, 0, 1)
-                love.graphics.printf('Lost', self.x - 28, self.y - 25, 100, 'center')
-            elseif other.lostClash then
-                love.graphics.setColor(1, 0, 0, 1)
-                love.graphics.printf('Lost', other.x - 28, other.y - 25, 100, 'center')
-            end
-        end
-
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
-    else
-        self.isClashing = false
     end
 end
 
