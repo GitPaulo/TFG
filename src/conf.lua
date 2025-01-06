@@ -7,6 +7,6 @@ function love.conf(t)
     t.window.width = 425
     t.window.height = 281
     -- NO resizing! TINY!
-    t.window.title = "FF: A Tiny Fighting Game"
+    t.window.title = "TFG: A Tiny Fighting Game"
     t.console = _G.isDebug
 end

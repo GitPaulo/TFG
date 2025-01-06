@@ -1,4 +1,4 @@
-# FF
+# TFG
 
 A tiny Love2D fighting game.
 
