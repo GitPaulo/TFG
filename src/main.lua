@@ -2,13 +2,14 @@ require 'dependencies'
 
 _G.FPS_CAP = 144
 
-local KeyMappings, Menu, Game, CharacterSelect, Loading, Settings, StateMachine, love, SoundManager =
+local KeyMappings, Menu, Game, CharacterSelect, Loading, Settings, Controls, StateMachine, love, SoundManager =
     _G.KeyMappings,
     _G.Menu,
     _G.Game,
     _G.CharacterSelect,
     _G.Loading,
     _G.Settings,
+    _G.Controls,
     _G.StateMachine,
     _G.love,
     _G.SoundManager -- Do not add _G.isDebug as it is changed by Settings
@@ -17,8 +18,6 @@ local tickPeriod = 1 / _G.FPS_CAP -- seconds per tick
 local accumulator = 0.0
 
 function love.load()
-    local customCursor = love.mouse.newCursor('assets/cursor.png', 0, 0)
-    love.mouse.setCursor(customCursor)
     love.graphics.setDefaultFilter('nearest', 'nearest')
 
     -- Initialize state machine with separate state files
@@ -29,7 +28,8 @@ function love.load()
             ['game'] = Game,
             ['loading'] = Loading,
             ['characterselect'] = CharacterSelect,
-            ['settings'] = Settings
+            ['settings'] = Settings,
+            ['controls'] = Controls
         }
     )
     gStateMachine:change('menu')

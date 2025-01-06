@@ -1,6 +1,7 @@
 local love = _G.love
-local table = require 'lib.table'
-local Anim8 = require 'lib.anim8'
+local Gui = _G.Gui
+local table = _G.table
+local Anim8 = _G.Anim8
 local CharacterSelect = {}
 
 local SPRITE_SCALE = 2
@@ -79,7 +80,7 @@ function CharacterSelect:enter(params)
     self.statsFont = love.graphics.newFont(10)
 
     -- Set custom cursor
-    self.cursor = love.graphics.newImage('assets/cursor.png')
+    self.cursor = Gui.Cursor('assets/cursor.png')
     love.mouse.setVisible(false)
 
     -- Load background music
@@ -126,6 +127,10 @@ function CharacterSelect:update(dt)
             self.stateMachine:change('menu', {selectedFighters = selectedFighterNames})
         end
     end
+
+    -- Update custom cursor
+    local mouseX, mouseY = love.mouse.getPosition()
+    self.cursor:update(mouseX, mouseY)
 end
 
 function CharacterSelect:render()
@@ -177,7 +182,7 @@ function CharacterSelect:render()
     love.graphics.printf("Press 'Esc' to go back", 0, instructionY + 30, windowWidth, 'center')
 
     -- Draw custom cursor
-    love.graphics.draw(self.cursor, love.mouse.getX(), love.mouse.getY())
+    self.cursor:render()
 end
 
 function CharacterSelect:keypressed(key)
