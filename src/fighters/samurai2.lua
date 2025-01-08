@@ -1,7 +1,7 @@
 return {
     name = 'Samurai2',
     scale = {x = 1.35, y = 1.3, ox = -4, oy = -2, width = 35, height = 80},
-    traits = {health = 100, speed = 185, stamina = 100, dashSpeed = 515, jumpStrength = 600},
+    traits = {health = 100, speed = 185, stamina = 100, staminaRecoveryRate = 50, dashSpeed = 515, jumpStrength = 600},
     hitboxes = {
         light = {ox = 0, oy = 0, width = 90, height = 100},
         medium = {ox = 0, oy = 0, width = 90, height = 130},
