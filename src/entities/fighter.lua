@@ -3,6 +3,28 @@ local Anim8 = require 'lib.anim8'
 local Class, love, SoundManager = _G.Class, _G.love, _G.SoundManager
 local Fighter = Class:extend()
 
+-- Enum: State
+_G.ANIM_STATE_IDLE = "idle"
+_G.ANIM_STATE_RUN = "run"
+_G.ANIM_STATE_JUMP = "jump"
+_G.ANIM_STATE_LIGHT_ATTACK = "light"
+_G.ANIM_STATE_MEDIUM_ATTACK = "medium"
+_G.ANIM_STATE_HEAVY_ATTACK = "heavy"
+_G.ANIM_STATE_HIT = "hit"
+_G.ANIM_STATE_DEATH = "death"
+_G.ANIM_STATE_STUNNED = "stunned"
+_G.ANIM_STATE_KNOCKBACK = "knockback"
+_G.ANIM_STATE_DASHING = "dashing"
+
+-- Enum: Attack Type
+_G.ATTACK_TYPE_LIGHT = "light"
+_G.ATTACK_TYPE_MEDIUM = "medium"
+_G.ATTACK_TYPE_HEAVY = "heavy"
+
+-- Enum: Direction
+_G.DIRECTION_LEFT = -1
+_G.DIRECTION_RIGHT = 1
+
 function Fighter:init(
     id,
     isAI,
@@ -36,29 +58,35 @@ function Fighter:init(
     self.attacks = attacks or {}
     self:validateFighterParameters()
 
-    -- Character State
+    -- Position and movement
     self.dy = 0
-    self.direction = (id == 2) and -1 or 1 -- Set direction to right for player 1 and left for player 2
-    self.state = 'idle'
+    self.direction = (id == 2) and DIRECTION_LEFT or DIRECTION_RIGHT -- Set direction to right for player 1 and left for player 2
+    -- General State: 1:1 with the animation states AND any state that is mutually exclusive
+    self.state = ANIM_STATE_IDLE
+    -- Character Flags, MORE THAN ONE can be active at the same time
+    -- Character State: block
     self.isBlocking = false
     self.isBlockingDamage = false
+    -- Character State: jump
     self.isAirborne = false
-    self.isDashing = false
-    self.isRecovering = false
-    self.isClashing = false
-    self.isAttackActive = false
+    self.isGrounded = true
+    self.gravity = 1000
     -- Character State: attack
+    self.isAttacking = false -- This is the general attack flag
+    self.isAttackActive = false -- This is the flag for the active attack => FRAME <=
     self.attackType = nil
     self.lastAttackType = nil
     self.attackEndTime = 0
     self.recoveryEndTime = 0
     -- Character State: dash
-    self.lastTapTime = {left = 0, right = 0}
-    self.dashDuration = 0.25
+    self.isDashing = false
+    self.dashDuration = 0.2
     self.dashEndTime = 0
     self.dashStaminaCost = 25
-    self.deathAnimationFinished = false
+    self.dashLastPressTime = {left = 0, right = 0}
+    self.dashPressWindow = 0.5
     -- Character State: clash
+    self.isClashing = false
     self.clashTime = 0
     self.knockbackTargetX = self.x
     self.knockbackSpeed = 400
@@ -69,9 +97,14 @@ function Fighter:init(
     -- Character State: hit
     self.hitEndTime = 0
     self.damageApplied = false -- ensures it only every applies once
+    -- Character State: recovery
+    self.isRecovering = false
+    -- Character State: stun
+    self.isStunned = false
+    self.stunnedTimer = 0
     -- Other
-    self.gravity = 1000
     self.isAI = isAI or false
+    self.deathAnimationFinished = false
 
     -- Animation, Sprites and sound
     self.spritesheets = self:loadSpritesheets(spriteConfig)
@@ -82,6 +115,10 @@ function Fighter:init(
     -- Set the default animation to idle
     self.currentAnimation = self.animations.idle
 end
+
+--[[
+    Load
+--]]
 
 function Fighter:validateFighterParameters()
     assert(self.id, 'ID must be defined for fighter')
@@ -184,54 +221,153 @@ function Fighter:createAnimation(image, frameWidth, frameHeight, frameCount, fra
     return animation
 end
 
+--[[
+    Update
+--]]
+
 function Fighter:update(dt, other)
-    if self.state ~= 'death' then
-        -- Handle all actions except death
+    if self.state ~= ANIM_STATE_DEATH then
+        -- Update state: hit, recovery, stun, knockback
+        -- self:updateState(dt, other)
+        -- Update actions: movement, jumping, attacking
         self:updateActions(dt, other)
-        -- Update the state of the fighter after handling actions
-        self:updateState(dt, other)
     else
-        -- Handle death animation
-        self:checkDeathAnimationFinished()
+        -- Update death animation
+        self:updateDeathAnimation()
     end
 
     -- Always update the current animation
     self.currentAnimation:update(dt)
 end
 
-function Fighter:updateActions(dt, other)
-    self:handleMovement(dt, other)
-    self:handleJumping(dt, other)
-    self:handleAttacks(other)
+function Fighter:updateState(dt, other)
+    -- Handle stun first
+    self:handleStun(dt)
+    if self.isStunned then return end
+
+    -- Handle knockback
+    self:handleKnockback(dt)
+    if self.knockbackActive then return end
+
+    -- Handle clashing
+    if self.state == ANIM_STATE_ATTACKING then
+        self:checkAttackActivity(currentTime)
+        self:handleClash(other)
+    end
+
+    -- Handle damage
     self:handleDamage(other)
+
+    -- Handle recovery
+    self:handleRecovery()
+
+    -- Handle idle
+    self:handleIdle()
 end
 
-function Fighter:updateState(dt, other)
+function Fighter:updateActions(dt, other)
+    self:handleAttacks(other)
+    self:handleJumping(dt, other)
+    self:handleMovement(dt, other)
+    self:handleBlocking(dt, other)
+
+    -- debug remove
+    if self.id == 1 then
+    table.dump({
+        _player = (self.id == 1) and 'Player 1' or 'Player 2',
+        isBlocking = self.isBlocking,
+        isBlockingDamage = self.isBlockingDamage,
+        isAttacking = self.isAttacking,
+        isAirborne = self.isAirborne,
+        isRecovering = self.isRecovering,
+        isClashing = self.isClashing,
+        isAttackActive = self.isAttackActive,
+        isStunned = self.isStunned,
+        isKnockbackActive = self.knockbackActive,
+        animState = self.state,
+    })
+    end
+end
+
+function Fighter:handleStun(dt) 
+  if self.isStunned then
+        self.stunnedTimer = self.stunnedTimer - dt
+        if self.stunnedTimer <= 0 then
+            self.isStunned = false
+            self:setAnimState(ANIM_STATE_IDLE)
+        end
+    end
+end
+
+function Fighter:handleAttacks()
     local currentTime = love.timer.getTime()
-    local isAttacking = self.state == 'attacking'
-    local isHit = self.state == 'hit'
+
+    -- Check if an attack is active and handle its end
+    if self.isAttacking then
+        -- Check if attack duration has elapsed
+        if currentTime >= self.attackEndTime then
+            self.isAttacking = false
+            self.isAttackActive = false
+            self.damageApplied = false -- Reset damage application for the next attack
+            
+            -- Transition to recovery or idle
+            if self.isRecovering then
+                self:setAnimState(ANIM_STATE_RECOVERY)
+            else
+                self:setAnimState(ANIM_STATE_IDLE)
+            end
+            return -- Exit early since we're handling an ongoing attack
+        end
+
+        -- Activate the attack if within the active frames
+        if not self.isAttackActive and currentTime >= self.attackActiveFrame and currentTime < self.attackEndFrame then
+            self.isAttackActive = true -- Activate the attack hitbox
+        elseif self.isAttackActive and currentTime >= self.attackEndFrame then
+            self.isAttackActive = false -- Deactivate the attack hitbox
+        end
+    end
+
+    -- Handle attack initiation based on input
+    if love.keyboard.wasPressed(self.controls.light) then
+        self:startAttack(ATTACK_TYPE_LIGHT)
+    elseif love.keyboard.wasPressed(self.controls.medium) then
+        self:startAttack(ATTACK_TYPE_MEDIUM)
+    elseif love.keyboard.wasPressed(self.controls.heavy) then
+        self:startAttack(ATTACK_TYPE_HEAVY)
+    end
+end
+
+
+function Fighter:handleDamage(other)
+    if self.isBlocking then
+        self.isBlockingDamage = true
+        -- Play block sound effect if available
+        SoundManager:playSound(self.sounds.block)
+    elseif not other.damageApplied then
+        local attackHitbox = other:getAttackHitbox()
+        local attackData = other.attacks[other.attackType]
+        if attackHitbox then
+            local attackDamage = attackData.damage
+            self:takeDamage(attackDamage)
+            other.damageApplied = true -- Ensure damage is only applied once
+        end
+    end
+end
+
+function Fighter:handleRecovery()
+    local currentTime = love.timer.getTime()
+    local isAttacking = self.state == ANIM_STATE_ATTACKING
+    local isHit = self.state == ANIM_STATE_HIT
     local isRecoveryPeriodOver = currentTime >= self.recoveryEndTime
     local isAttackPeriodOver = currentTime >= self.attackEndTime
     local isHitPeriodOver = currentTime >= self.hitEndTime
-    local isIdle = self.state == 'idle'
-
-    -- Handle knockback
-    if self.knockbackActive or self.knockbackDelayTimer > 0 then
-        self:checkForKnockback(dt)
-    end
-
-    -- Check if active attack
-    if isAttacking then
-        self:checkAttackActivity(currentTime)
-        self:checkForClash(other)
-    end
 
     -- Transition from attacking to recovery if the attack period has ended
     if isAttacking and isAttackPeriodOver then
         if self.isAirborne then
-            self:setState('jump')
+            self:setAnimState(ANIM_STATE_JUMP)
         else
-            self:setState('idle')
+            self:setAnimState(ANIM_STATE_IDLE)
         end
 
         -- Start recovery period
@@ -245,9 +381,12 @@ function Fighter:updateState(dt, other)
 
     -- Transition from hit to idle if the hit period has ended
     if isHit and isHitPeriodOver then
-        self:setState('idle')
+        self:setAnimState(ANIM_STATE_IDLE)
     end
+end
 
+function Fighter:handleIdle()
+    local isIdle = self.state == ANIM_STATE_IDLE
     -- Recover stamina if the fighter is idle
     if isIdle then
         self:recoverStamina(dt)
@@ -264,276 +403,180 @@ function Fighter:checkAttackActivity()
     end
 end
 
-function Fighter:handleMovement(dt, other)
-    if self.state == 'attacking' or self.state == 'hit' or self.isClashing or self.knockbackActive then
-        return
+function Fighter:startDash(direction)
+    -- Ensure stamina and cooldown requirements are met
+    if self.stamina < self.dashStaminaCost then
+        return;
     end
 
+    local currentTime = love.timer.getTime()
+    
+    self.direction = direction
+    self.dashEndTime = currentTime + self.dashDuration
+    self.stamina = self.stamina - self.dashStaminaCost
+
+    self:setAnimState(ANIM_STATE_DASHING)
+    SoundManager:playSound(self.sounds.dash, {clone = true})
+end
+
+function Fighter:handleMovement(dt, other)
     local windowWidth = love.graphics.getWidth()
     local currentTime = love.timer.getTime()
 
     -- Handle dashing
-    if self.isDashing then
+    if self.state == ANIM_STATE_DASHING then
         if currentTime < self.dashEndTime then
             local dashSpeed = self.direction * self.dashSpeed * dt
             local newX = self.x + dashSpeed
-            if newX < 0 then
-                newX = 0
-            elseif newX + self.width > windowWidth then
-                newX = windowWidth - self.width
-            end
+
+            -- Clamp position to screen bounds
+            newX = math.max(0, math.min(newX, windowWidth - self.width))
+
+            -- Move if no collision
             if not self:checkXCollision(newX, self.y, other) then
                 self.x = newX
             end
+
             return -- Exit movement handling while dashing
         else
-            self.isDashing = false
+            self:setAnimState(ANIME_STATE_RUN) -- Set state to run after dashing (looks smoother)
         end
-    end
-
-    -- Detect double-tap for dashing
-    if not self.isAI then -- AI doesn't need to check for double-tap
+    elseif not self.isAI then -- Start dashing (double tap)
         if love.keyboard.wasPressed(self.controls.left) then
-            if currentTime - (self.lastTapTime.left or 0) < 0.3 then
-                self:startDash(-1)
+            if currentTime - (self.dashLastPressTime.left or 0) < self.dashPressWindow then
+                self:startDash(DIRECTION_LEFT)
+
+                return; -- Dash is starting
             end
-            self.lastTapTime.left = currentTime
-        elseif love.keyboard.wasPressed(self.controls.right) then
-            if currentTime - (self.lastTapTime.right or 0) < 0.3 then
-                self:startDash(1)
+            self.dashLastPressTime.left = currentTime
+        end
+
+        if love.keyboard.wasPressed(self.controls.right) then
+            if currentTime - (self.dashLastPressTime.right or 0) < self.dashPressWindow then
+                self:startDash(DIRECTION_RIGHT)
+                return; -- Dash is starting
             end
-            self.lastTapTime.right = currentTime
+            self.dashLastPressTime.right = currentTime
         end
     end
 
     -- Handle normal movement
     if love.keyboard.isDown(self.controls.left) then
-        self.direction = -1 -- Set direction to left
+        self.direction = DIRECTION_LEFT
         local newX = self.x - self.speed * dt
+        -- Clamp position to screen bounds (left edge)
         if newX < 0 then
             newX = 0
         end
+        -- Check for collision with the other fighter
         if not self:checkXCollision(newX, self.y, other) then
             self.x = newX
             if not self.isAirborne then
-                self:setState('run')
+                self:setAnimState(ANIM_STATE_RUN)
             end
         end
     elseif love.keyboard.isDown(self.controls.right) then
-        self.direction = 1 -- Set direction to right
+        self.direction = DIRECTION_RIGHT
         local newX = self.x + self.speed * dt
+        -- Clamp position to screen bounds (right edge)
         if newX + self.width > windowWidth then
             newX = windowWidth - self.width
         end
+        -- Check for collision with the other fighter
         if not self:checkXCollision(newX, self.y, other) then
             self.x = newX
             if not self.isAirborne then
-                self:setState('run')
+                self:setAnimState(ANIM_STATE_RUN)
             end
         end
-    elseif not self.isAirborne then
-        self:setState('idle') -- Set state to idle if no movement keys are pressed
-    end
-
-    self.isBlocking = self.direction == other.direction
-end
-
-function Fighter:startDash(direction)
-    if self.stamina >= self.dashStaminaCost then
-        self.isDashing = true
-        self.direction = direction
-        self.dashEndTime = love.timer.getTime() + self.dashDuration
-        self.stamina = self.stamina - self.dashStaminaCost -- Consume stamina
-        SoundManager:playSound(self.sounds.dash, {clone = true}) -- Use the clone parameter here
-    end
-end
-
-function Fighter:recoverStamina(dt)
-    if self.state == 'idle' and self.stamina < self.maxStamina then
-        self.stamina = self.stamina + self.dashStaminaCost * dt
-        if self.stamina > self.maxStamina then
-            self.stamina = self.maxStamina
+    else -- No movement keys are pressed
+        local isAllowedStateChange = 
+            not self.isAttacking and not self.isClashing and not self.isStunned 
+                and self.state ~= ANIM_STATE_JUMP 
+                and self.state ~= ANIM_STATE_HIT 
+                and self.state ~= ANIM_STATE_DASHING
+        if isAllowedStateChange then
+            self:setAnimState(ANIM_STATE_IDLE)
         end
     end
 end
 
-function Fighter:checkXCollision(newX, newY, other)
-    return not (newX + self.width <= other.x or newX >= other.x + other.width or newY + self.height <= other.y or
-        newY >= other.y + other.height)
+function Fighter:handleBlocking(dt, other)
+    -- A fighter blocks if their back is turned to the opponent or if both fighters are turned away
+    local isFacingOpponent = (self.direction == 1 and self.x < other.x) 
+                                or (self.direction == -1 and self.x > other.x)
+    self.isBlocking = not isFacingOpponent or self.direction == other.direction
 end
 
 function Fighter:handleJumping(dt, other)
     local windowHeight = love.graphics.getHeight()
-    local groundLevel = windowHeight - 10 -- Define the ground level
-    local skyLevel = 0 -- Define the top level (skybox)
+    local groundLevel = windowHeight - 10 -- Ground level
+    local skyLevel = 0 -- Skybox level
 
-    -- Boolean flags for readability
-    local isAttacking = self.state == 'attacking'
-    local isHit = self.state == 'hit'
-    local isRecovering = self.isRecovering
-    local isClashing = self.isClashing
-    local isAirborne = self.isAirborne
-    local isFalling = self.dy > 0
-    local isAllowedToJump = not isAirborne and not isAttacking and not isHit and not isRecovering and not isClashing
-    local isAllowedToChangeState = not isAttacking and not isHit and not isRecovering and not isClashing
-
-    -- Update vertical position due to gravity
+    -- Update vertical velocity due to gravity
     self.dy = self.dy + self.gravity * dt
+    local newY = self.y + self.dy * dt -- Potential new position (gravity applied)
 
-    -- Potential new position after applying gravity
-    -- REMEMBER: y-axis is inverted in LOVE2D, BIGGER NUMBER = LOWER POSITION
-    local newY = self.y + self.dy * dt
-    local isOnOrBelowGround = newY >= groundLevel - self.height -- Check if the new position is on the ground
+    -- Check conditions
+    local isAttacking = self.state == ANIM_STATE_ATTACKING
+    local isJumping = self.state == ANIM_STATE_JUMP
+    local isDashing = self.state == ANIM_STATE_DASHING
+    local isHit = self.state == ANIM_STATE_HIT
+    local isAllowedToJump = not isAttacking and not isHit and not isDashing and not self.isRecovering and not self.isClashing and not self.isStunned and not self.isAirborne
 
-    -- Check for collision with the ground
-    if isOnOrBelowGround then
+    -- Determine collisions
+    if newY >= groundLevel - self.height then
+        -- Handle ground collision
         self.y = groundLevel - self.height
-        self.isAirborne = false
         self.dy = 0
-        if isAllowedToChangeState then
-            if not love.keyboard.isDown(self.controls.left) and not love.keyboard.isDown(self.controls.right) then
-                self:setState('idle') -- Set state to idle if no movement keys are pressed
-            elseif isFalling then
-                self:setState('jump') -- Set state to jump if the fighter is falling
-            end
+        self.isAirborne = false
+        self.isGrounded = true
+
+        if isJumping then
+            self:setAnimState(ANIM_STATE_IDLE)
         end
     elseif newY <= skyLevel then
-        -- Prevent fighter from moving above the top of the screen
         self.y = skyLevel
         self.dy = 0
+        self.isAirborne = true
+        self.isGrounded = false
     elseif self:checkYCollision(newY, other) then
-        -- Check for collision with the other fighter
-        if isFalling then
-            self.y = other.y - self.height -- Adjust position if colliding while falling
+        if self.dy > 0 then -- Falling onto the opponent
+            self.y = other.y - self.height
             self.dy = 0
             self.isAirborne = false
-        else
-            self.y = self.y -- Keep current position if rising
-            self.dy = 0
-        end
+            self.isGrounded = true
 
-        -- Set state to idle (standing on top)
-        if isAllowedToChangeState then
-            self:setState('idle') -- Set state to idle if conditions allow
+            if isJumping then
+                self:setAnimState(ANIM_STATE_IDLE)
+            end
+        else -- Rising into the opponent
+            self.dy = 0
+            self.isGrounded = false
         end
-    else
-        -- Update position if no collision with the opponent
+    else -- Normal movement (no collision)
         self.y = newY
         self.isAirborne = true
+        self.isGrounded = false
     end
 
-    -- Only allow initiating a jump if certain conditions are met
     if isAllowedToJump and love.keyboard.wasPressed(self.controls.jump) then
-        self.dy = self.jumpStrength
-        self.isAirborne = true
-        self:setState('jump')
-        -- Play jump sound
-        SoundManager:playSound(self.sounds.jump)
+        self:startJump()
     end
 end
 
-function Fighter:checkYCollision(newY, other)
-    return not (self.x + self.width <= other.x or self.x >= other.x + other.width or newY + self.height < other.y or
-        newY > other.y + other.height)
+function Fighter:startJump()
+    self.dy = self.jumpStrength
+    self.isAirborne = true
+    self.isGrounded = false
+
+    self:setAnimState(ANIM_STATE_JUMP)
+    SoundManager:playSound(self.sounds.jump)
 end
 
-function Fighter:handleAttacks()
-    if love.keyboard.wasPressed(self.controls.light) then
-        self:startAttack('light')
-    elseif love.keyboard.wasPressed(self.controls.medium) then
-        self:startAttack('medium')
-    elseif love.keyboard.wasPressed(self.controls.heavy) then
-        self:startAttack('heavy')
-    end
-end
-
-function Fighter:handleDamage(other)
-    self.isBlockingDamage = false
-
-    if other.state ~= 'attacking' or not self:isHit(other) then
-        return
-    end
-
-    if self.isBlocking then
-        self.isBlockingDamage = true
-        -- Play block sound effect if available
-        SoundManager:playSound(self.sounds.block)
-    elseif not other.damageApplied then
-        local attackHitbox = other:getAttackHitbox()
-        local attackData = other.attacks[other.attackType]
-        if attackHitbox then
-            local attackDamage = attackData.damage
-            self:takeDamage(attackDamage)
-            other.damageApplied = true -- Ensure damage is only applied once
-        end
-    end
-end
-
-function Fighter:startAttack(attackType)
-    if self.state == 'attacking' or self.state == 'hit' or self.isRecovering then
-        return -- Prevent new attacks from starting if already attacking or recovering or hit
-    end
-
-    -- Stamina
-    local mediumStaminaCost = 15
-    local heavyStaminaCost = 30
-    local staminaCost = 0
-    if attackType == 'medium' then
-        staminaCost = mediumStaminaCost
-    elseif attackType == 'heavy' then
-        staminaCost = heavyStaminaCost
-    end
-    if self.stamina < staminaCost then
-        return -- Prevent attack if not enough stamina
-    end
-    self.stamina = self.stamina - staminaCost -- Deduct stamina
-
-    -- Start attack state change
-    self.state = 'attacking' -- Note: Don't use self.setState() here
-    self.attackType = attackType
-    self.lastAttackType = attackType
-    self.damageApplied = false -- Reset damage applied for attacker (Important not to stack damage)
-
-    -- Get the precomputed attack duration
-    local attackDuration = self.animationDurations[attackType]
-    self.attackEndTime = love.timer.getTime() + attackDuration
-
-    -- Get the attack data
-    local attackData = self.attacks[attackType]
-
-    -- Set the current animation to the attack animation
-    self.currentAnimation = self.animations[attackType]
-    self.currentAnimation:gotoFrame(1)
-    self.isAttackActive = false
-
-    -- Store start and active frame durations
-    self.attackActiveFrame = attackData.start
-    self.attackEndFrame = attackData.active
-
-    -- Play the attack sound
-    SoundManager:playSound(self.sounds[attackType], {clone = true})
-end
-
-function Fighter:startRecovery(attackType)
-    if _G.isDebug then
-        print('Recovery started for', self.id, 'attack', attackType)
-    end
-    self.recoveryEndTime = love.timer.getTime() + self.attacks[attackType].recovery
-
-    self.attackType = nil
-    self.isRecovering = true
-end
-
-function Fighter:endRecovery()
-    if _G.isDebug then
-        print('Recovery ended for', self.id)
-    end
-    self.isRecovering = false
-end
-
-function Fighter:checkForClash(other)
+function Fighter:handleClash(other)
     local isAllowedToClash =
-        self.state == 'attacking' and other.state == 'attacking' and not self.isBlocking and not other.isBlocking and
+        self.state == ANIM_STATE_ATTACKING and other.state == ANIM_STATE_ATTACKING and not self.isBlocking and not other.isBlocking and
         not (self:isHit(other) or other:isHit(self))
     if not isAllowedToClash then
         return
@@ -547,7 +590,7 @@ function Fighter:checkForClash(other)
     end
 end
 
-function Fighter:checkForKnockback(dt)
+function Fighter:handleKnockback(dt)
     local windowWidth = love.graphics.getWidth()
 
     if self.knockbackDelayTimer > 0 then
@@ -558,7 +601,7 @@ function Fighter:checkForKnockback(dt)
         return
     end
 
-    if self.knockbackActive and self.state ~= 'run' then
+    if self.knockbackActive and self.state ~= ANIM_STATE_RUN then
         -- Check if the fighter is close to the target position to stop
         if math.abs(self.x - self.knockbackTargetX) < 1 then
             self.knockbackActive = false -- Stop knockback when close to target
@@ -589,6 +632,100 @@ function Fighter:checkForKnockback(dt)
             end
         end
     end
+end
+
+function Fighter:applyStun()
+    self.isStunned = true
+    self.stunnedTimer = 1
+    self:setAnimState(ANIM_STATE_STUNNED)
+    SoundManager:playSound(self.sounds.hit)
+end
+
+function Fighter:recoverStamina(dt)
+    if self.state == ANIM_STATE_IDLE and self.stamina < self.maxStamina then
+        self.stamina = self.stamina + self.dashStaminaCost * dt
+        if self.stamina > self.maxStamina then
+            self.stamina = self.maxStamina
+        end
+    end
+end
+
+function Fighter:checkXCollision(newX, newY, other)
+    return not (newX + self.width <= other.x or newX >= other.x + other.width or newY + self.height <= other.y or
+        newY >= other.y + other.height)
+end
+
+function Fighter:checkYCollision(newY, other)
+    local feetY = self.y + self.height
+    local headY = other.y
+    local isOnHead = (self.x + self.width > other.x and self.x < other.x + other.width) and (feetY >= headY and feetY <= headY + 10)
+
+    if isOnHead and self.dy > 0 then
+        -- Apply stun
+        other:applyStun()
+        -- Apply bounce
+        self.dy = self.jumpStrength * 0.5 -- Adjust bounce strength
+        return true
+    end
+
+    return not (self.x + self.width <= other.x or self.x >= other.x + other.width or newY + self.height < other.y or
+        newY > other.y + other.height)
+end
+
+function Fighter:startAttack(attackType)
+    if self.state == ANIM_STATE_HIT or self.isAttackActive or self.isAttacking or self.isRecovering then
+        return -- Cannot attack while hit, attacking, or recovering
+    end
+
+    print('Attack started for', self.id, 'attack', attackType)
+
+    -- Stamina cost based on attack type (could be moved to a config file)
+    local staminaCosts = {
+        [ANIM_STATE_MEDIUM_ATTACK] = 15,
+        [ANIM_STATE_HEAVY_ATTACK] = 30,
+    }
+    local staminaCost = staminaCosts[attackType] or 0 -- Default cost for light attack is 0
+    if self.stamina < staminaCost then
+        return -- Not enough stamina to attack
+    end
+    self.stamina = self.stamina - staminaCost -- Deduct stamina
+
+    -- Initialize attack state
+    self.isAttacking = true
+    self.isAttackActive = false
+    self.attackType = attackType
+    self.lastAttackType = attackType
+    self.damageApplied = false -- Reset damage tracking for the attack
+
+    -- Set attack duration and state
+    local attackDuration = self.animationDurations[attackType]
+    self.attackEndTime = love.timer.getTime() + attackDuration
+    self:setAnimState(attackType) -- Set the animation to the attack animation
+
+    -- Configure attack active and end frames
+    local attackData = self.attacks[attackType]
+    self.attackActiveFrame = attackData.start
+    self.attackEndFrame = attackData.active
+
+    -- Play attack sound
+    SoundManager:playSound(self.sounds[attackType], {clone = true})
+end
+
+function Fighter:startRecovery(attackType)
+    if _G.isDebug then
+        print('Recovery started for', self.id, 'attack', attackType)
+    end
+    self.recoveryEndTime = love.timer.getTime() + self.attacks[attackType].recovery
+
+    self.attackType = nil
+    self.isRecovering = true
+end
+
+function Fighter:endRecovery()
+    if _G.isDebug then
+        print('Recovery ended for', self.id)
+    end
+    self.isRecovering = false
 end
 
 function Fighter:checkHitboxOverlap(hitbox1, hitbox2)
@@ -656,12 +793,12 @@ end
 
 function Fighter:applyKnockback()
     local baseKnockbackDelay = self.knockbackDelay
-    local attackType = self.attackType or 'light'
+    local attackType = self.attackType or ATTACK_TYPE_LIGHT
 
     -- Adjust knockback delay based on the attack type
-    if attackType == 'medium' then
+    if attackType == ATTACK_TYPE_MEDIUM then
         baseKnockbackDelay = baseKnockbackDelay + 0.2
-    elseif attackType == 'heavy' then
+    elseif attackType == ATTACK_TYPE_HEAVY then
         baseKnockbackDelay = baseKnockbackDelay + 0.4
     end
 
@@ -681,18 +818,113 @@ function Fighter:winClash(loser)
     loser:applyKnockback()
 end
 
-function Fighter:setState(newState)
+function Fighter:getAttackHitbox()
+    if not self.attackType or not self.hitboxes[self.attackType] then
+        return nil
+    end
+
+    local hitbox = self.hitboxes[self.attackType]
+    local hitboxX =
+        self.direction == 1 and (self.x + self.width + (hitbox.ox or 0)) or (self.x - hitbox.width + (hitbox.ox or 0))
+
+    return {
+        x = hitboxX,
+        y = self.y + (self.height - hitbox.height) / 2 + (hitbox.oy or 0),
+        width = hitbox.width,
+        height = hitbox.height,
+        damage = hitbox.damage
+    }
+end
+
+function Fighter:isHit(other)
+    -- Check if the hitbox overlaps with the fighter's hitbox
+    local hitbox = other:getAttackHitbox()
+    if hitbox and not other.damageApplied and other.isAttackActive then
+        if
+            hitbox.x < self.x + self.width and hitbox.x + hitbox.width > self.x and hitbox.y < self.y + self.height and
+                hitbox.y + hitbox.height > self.y
+         then
+            return true
+        end
+    end
+    return false
+end
+
+function Fighter:takeDamage(damage)
+    self.health = self.health - damage
+    if self.health <= 0 then
+        -- Dead
+        self.health = 0
+        -- Helps ensure the death animation is played only once
+        if self.state ~= ANIM_STATE_DEATH then
+            self:setAnimState(ANIM_STATE_DEATH)
+
+            -- Play death animation
+            self.currentAnimation = self.animations.death
+            self.currentAnimation:gotoFrame(1)
+
+            -- Play death sound
+            SoundManager:playSound(self.sounds.death)
+
+            -- Set the start time for the death animation
+            self.deathAnimationStartTime = love.timer.getTime()
+        end
+    else
+        self:setAnimState(ANIM_STATE_HIT)
+
+        -- Play hit animation
+        self.currentAnimation = self.animations.hit
+        self.currentAnimation:gotoFrame(1)
+
+        -- Play hit sound effect if available
+        SoundManager:playSound(self.sounds.hit)
+
+        -- Set state back to idle after hit animation duration
+        local hitDuration = self.currentAnimation.totalDuration
+        self.hitEndTime = love.timer.getTime() + hitDuration
+    end
+end
+
+--[[
+    Animation State
+--]]
+
+function Fighter:setAnimState(newState)
     -- Only change state if the new state is different from the current state
     if self.state == newState then
         return
     end
+
+    -- Get caller info
+    local callerInfo = debug.getinfo(2, "n") -- Level 2 is the function that called this one
+    local callerName = callerInfo and callerInfo.name or "unknown"
+
+    print('Setting state to:', newState, 'from:', callerName)
     self.state = newState
 
     -- Determine the appropriate animation for the new state
+    -- Default to idle if no animation is found
     local newAnimation = self.animations[newState] or self.animations.idle
     self.currentAnimation = newAnimation
     self.currentAnimation:gotoFrame(1)
 end
+
+function Fighter:updateDeathAnimation()
+    if self.state == ANIM_STATE_DEATH then
+        local currentTime = love.timer.getTime()
+        local elapsedTime = currentTime - self.deathAnimationStartTime
+        local deathDuration = self.animationDurations[ANIM_STATE_DEATH]
+
+        if elapsedTime >= deathDuration then
+            self.deathAnimationFinished = true
+            self.currentAnimation:pauseAtEnd() -- Pause the animation at the last frame
+        end
+    end
+end
+
+--[[
+    Rendering
+--]]
 
 function Fighter:render(other)
     self:drawSprite()
@@ -702,7 +934,7 @@ function Fighter:render(other)
 end
 
 function Fighter:drawSprite()
-    local spriteName = self.state == 'attacking' and self.lastAttackType or self.state
+    local spriteName = self.state == ANIM_STATE_ATTACKING and self.lastAttackType or self.state
     local sprite = self.spritesheets[spriteName] or self.spritesheets.idle
 
     if self.currentAnimation then
@@ -768,86 +1000,6 @@ function Fighter:drawHitboxes()
             'deathAnimationFinished:',
             self.deathAnimationFinished
         )
-    end
-end
-
-function Fighter:getAttackHitbox()
-    if not self.attackType or not self.hitboxes[self.attackType] then
-        return nil
-    end
-
-    local hitbox = self.hitboxes[self.attackType]
-    local hitboxX =
-        self.direction == 1 and (self.x + self.width + (hitbox.ox or 0)) or (self.x - hitbox.width + (hitbox.ox or 0))
-
-    return {
-        x = hitboxX,
-        y = self.y + (self.height - hitbox.height) / 2 + (hitbox.oy or 0),
-        width = hitbox.width,
-        height = hitbox.height,
-        damage = hitbox.damage
-    }
-end
-
-function Fighter:isHit(other)
-    -- Check if the hitbox overlaps with the fighter's hitbox
-    local hitbox = other:getAttackHitbox()
-    if hitbox and not other.damageApplied and other.isAttackActive then
-        if
-            hitbox.x < self.x + self.width and hitbox.x + hitbox.width > self.x and hitbox.y < self.y + self.height and
-                hitbox.y + hitbox.height > self.y
-         then
-            return true
-        end
-    end
-    return false
-end
-
-function Fighter:takeDamage(damage)
-    self.health = self.health - damage
-    if self.health <= 0 then
-        -- Dead
-        self.health = 0
-        -- Helps ensure the death animation is played only once
-        if self.state ~= 'death' then
-            self:setState('death')
-
-            -- Play death animation
-            self.currentAnimation = self.animations.death
-            self.currentAnimation:gotoFrame(1)
-
-            -- Play death sound
-            SoundManager:playSound(self.sounds.death)
-
-            -- Set the start time for the death animation
-            self.deathAnimationStartTime = love.timer.getTime()
-        end
-    else
-        self:setState('hit')
-
-        -- Play hit animation
-        self.currentAnimation = self.animations.hit
-        self.currentAnimation:gotoFrame(1)
-
-        -- Play hit sound effect if available
-        SoundManager:playSound(self.sounds.hit)
-
-        -- Set state back to idle after hit animation duration
-        local hitDuration = self.currentAnimation.totalDuration
-        self.hitEndTime = love.timer.getTime() + hitDuration
-    end
-end
-
-function Fighter:checkDeathAnimationFinished()
-    if self.state == 'death' then
-        local currentTime = love.timer.getTime()
-        local elapsedTime = currentTime - self.deathAnimationStartTime
-        local deathDuration = self.animationDurations['death']
-
-        if elapsedTime >= deathDuration then
-            self.deathAnimationFinished = true
-            self.currentAnimation:pauseAtEnd() -- Pause the animation at the last frame
-        end
     end
 end
 

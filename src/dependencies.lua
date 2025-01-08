@@ -8,6 +8,7 @@ _G.Gui          = require 'lib.gui'
 _G.Class        = require 'lib.class'
 _G.table        = require 'lib.table'
 _G.Anim8        = require 'lib.anim8'
+_G.time         = require 'lib.time'
 -- Entities
 _G.Fighter = require 'entities.fighter'
 -- States

@@ -1,6 +1,6 @@
 require 'dependencies'
 
-_G.FPS_CAP = 144
+_G.FPS_CAP = 60
 
 local KeyMappings, Menu, Game, CharacterSelect, Loading, Settings, Controls, StateMachine, love, SoundManager =
     _G.KeyMappings,
