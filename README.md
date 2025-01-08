@@ -44,9 +44,15 @@ I do not own any of the assets used in this game.
 
 ## TODO
 
-- [ ] Binary data to represent FFT data (binrary json)
-- [ ] Fixed clashing dy knockback
+- [ ] Fix debug mode setting
+- [ ] Refactor Fighter table logic, it's pretty bad
+- [ ] Improve game over screen, maybe keep track of P1 vs P2 wins?
+- [ ] Add more 300x800 backgrounds
+- [ ] Add more attacks
+  - [ ] Grab without animation somehow
+  - [ ] Jump squish attack? with a bounce!!! and that gets rid of weird top interactions
 - [ ] Rock entity! Interact with rock (pray)?
 - [ ] Fix basic AI and settings passing logic
 - [ ] Fix sprite scaling in character select
 - [ ] Countdown to fight (maybe not explicit) and fighter enter anims?
+- [ ] Keymappings get reset on game over

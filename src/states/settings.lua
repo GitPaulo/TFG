@@ -45,9 +45,9 @@ function Settings:enter(params)
         self.aiCheckbox.y + CHECKBOX_SIZE + PADDING,
         CHECKBOX_SIZE,
         "Use Debug Mode",
-        self.useDebugMode or false,
+        _G.isDebug or false,
         function(state)
-            self.useDebugMode = state
+            _G.isDebug = state
         end
     )
 
