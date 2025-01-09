@@ -44,8 +44,6 @@ I do not own any of the assets used in this game.
 
 ## TODO
 
-- [ ] Fix debug mode setting
-- [ ] Refactor Fighter table logic, it's pretty bad
 - [ ] Improve game over screen, maybe keep track of P1 vs P2 wins?
 - [ ] Add more 300x800 backgrounds
 - [ ] Add more attacks

@@ -85,7 +85,7 @@ function Fighter:init(
     self.dashEndTime = 0
     self.dashStaminaCost = 25
     self.dashLastPressTime = {left = 0, right = 0}
-    self.dashPressWindow = 0.5
+    self.dashPressWindow = 0.3
     -- Character State: clash
     self.isClashing = false
     self.clashTime = 0
@@ -94,6 +94,7 @@ function Fighter:init(
     self.knockbackActive = false
     self.knockbackDelay = 0.2
     self.knockbackDelayTimer = 0
+    self.knockbackApplied = false
     self.pendingDamage = nil
     self.lostClash = false
     -- Character State: hit
@@ -267,13 +268,17 @@ function Fighter:updateActions(dt, other)
     self:handleBlocking(dt, other)
 end
 
-function Fighter:handleStun(dt) 
-    local isStunned = self.state == ANIM_STATE_STUNNED
-    if isStunned then
-        self.stunnedTimer = self.stunnedTimer - dt
-        if self.stunnedTimer <= 0 then
-            self:setAnimState(ANIM_STATE_IDLE)
-        end
+function Fighter:handleStun(dt)
+    if state ~= ANIM_STATE_STUNNED then
+        return
+    end
+
+    -- Decrease the stun timer
+    self.stunnedTimer = self.stunnedTimer - dt
+
+    -- Check if stun duration has ended
+    if self.stunnedTimer <= 0 then
+        self:setAnimState(ANIM_STATE_IDLE) -- Transition back to idle state
     end
 end
 
@@ -309,6 +314,12 @@ function Fighter:handleAttacks(other)
 
             return -- Exit early since the attack has ended
         end
+    end
+
+    local isAllowedToAttack = not self.isAttacking and not self.isClashing and not self.knockbackActive 
+        and self.state ~= ANIM_STATE_HIT and self.state ~= ANIM_STATE_STUN
+    if not isAllowedToAttack then
+        return -- Exit early if not allowed to attack
     end
 
     -- Handle attack initiation based on input
@@ -379,14 +390,19 @@ function Fighter:handleIdle(dt)
     local isIdle = self.state == ANIM_STATE_IDLE
     -- Recover stamina if the fighter is idle
     if isIdle then
-        self:recoverStamina(dt)
+        if self.state == ANIM_STATE_IDLE and self.stamina < self.maxStamina then
+            self.stamina = self.stamina + self.staminaRecoveryRate * dt
+            if self.stamina > self.maxStamina then
+                self.stamina = self.maxStamina
+            end
+        end
     end
 end
 
 function Fighter:handleMovement(dt, other)
     local isAttackingButNotJumping = self.isAttacking and not self.isAirborne;
-    if isAttackingButNotJumping or self.isClashing or self.isStunned 
-        or self.state == ANIM_STATE_HIT then
+    if isAttackingButNotJumping or self.isClashing or self.knockbackActive
+        or self.state == ANIM_STATE_HIT or self.state == ANIM_STATE_STUN then
         return -- Exit movement handling if in a state that prevents movement
     end
 
@@ -481,71 +497,75 @@ function Fighter:handleJumping(dt, other)
     self.dy = self.dy + self.gravity * dt
     local newY = self.y + self.dy * dt -- Potential new position (gravity applied)
 
+    -- Handle landing on opponent's head
+    local feetY = self.y + self.height
+    local headY = other.y
+    local isOnHead = (self.x + self.width > other.x and self.x < other.x + other.width) and (feetY >= headY and feetY <= headY + 10)
+    if isOnHead and self.dy > 0 then
+        other:startStun() 
+        self.dy = self.jumpStrength * 0.69 -- Apply bounce
+        self.y = other.y - self.height -- Correct position to prevent overlap
+        return -- bounce only!
+    end
+
     -- Check conditions
     local isAttacking = self.isAttacking
     local isJumping = self.state == ANIM_STATE_JUMP
     local isDashing = self.state == ANIM_STATE_DASHING
     local isHit = self.state == ANIM_STATE_HIT
     local isAllowedToJump = not isAttacking and not isHit and not isDashing and 
-        not self.isRecovering and not self.isClashing and not self.isStunned and not self.isAirborne
+        not self.isRecovering and not self.isClashing and not self.isStunned and not self.isAirborne and not self.knockbackActive
 
-    -- Determine collisions
+    -- Handle collisions
     if newY >= groundLevel - self.height then
         -- Handle ground collision
         self.y = groundLevel - self.height
         self.dy = 0
         self.isAirborne = false
         self.isGrounded = true
-
         if isJumping then
             self:setAnimState(ANIM_STATE_IDLE)
         end
     elseif newY <= skyLevel then
+        -- Handle ceiling collision
         self.y = skyLevel
         self.dy = 0
         self.isAirborne = true
         self.isGrounded = false
     elseif self:checkYCollision(newY, other) then
-        if self.dy > 0 then -- Falling onto the opponent
-            self.y = other.y - self.height
-            self.dy = 0
-            self.isAirborne = false
-            self.isGrounded = true
-
-            if isJumping then
-                self:setAnimState(ANIM_STATE_IDLE)
-            end
-        else -- Rising into the opponent
-            self.dy = 0
-            self.isGrounded = false
+        -- General collision logic
+        self.y = other.y - self.height
+        self.dy = 0
+        self.isAirborne = false
+        self.isGrounded = true
+        if isJumping then
+            self:setAnimState(ANIM_STATE_IDLE)
         end
-    else -- Normal movement (no collision)
+    else
+        -- Normal movement (no collision)
         self.y = newY
         self.isAirborne = true
         self.isGrounded = false
     end
 
+    -- Handle jump input
     if isAllowedToJump and love.keyboard.wasPressed(self.controls.jump) then
         self:startJump()
     end
 end
 
 function Fighter:handleClash(other)
-    local isAllowedToClash =
-        self.isAttacking and other.isAttacking and
-        self.state ~= ANIM_STATE_HIT and other.state ~= ANIM_STATE_HIT
-
-    if not isAllowedToClash then
+    -- Check if a clash is allowed
+    if not (self.isAttacking and other.isAttacking and self.state ~= ANIM_STATE_HIT and other.state ~= ANIM_STATE_HIT) then
         return
     end
 
+    -- Check if hitboxes overlap
     local myHitbox = self:getAttackHitbox()
     local opponentHitbox = other:getAttackHitbox()
     if not self:checkHitboxOverlap(myHitbox, opponentHitbox) then
-        return -- Exit if no hitbox overlap
+        return
     end
-
-    local currentTime = love.timer.getTime()
 
     -- Both fighters lose stamina during clash
     self.stamina = math.max(self.stamina - 10, 0)
@@ -554,48 +574,56 @@ function Fighter:handleClash(other)
     -- If both fighters have no stamina, no clash happens
     if self.stamina == 0 and other.stamina == 0 then
         self.isClashing = false
-        self.lostClash = false
         other.isClashing = false
+        self.lostClash = false
         other.lostClash = false
         return
     end
 
-    -- Compare attack types and determine the winner
+    -- Compare attack weights
     local myAttackWeight = self:getAttackWeight(self.attackType)
-    local opponentAttackWeight = self:getAttackWeight(other.attackType)
+    local opponentAttackWeight = other:getAttackWeight(other.attackType)
 
     if myAttackWeight == opponentAttackWeight then
-        -- Both attacks are of the same weight, both fighters are knocked back
-        self:applyKnockback()
-        other:applyKnockback()
+        -- Both attacks are of equal weight, both fighters are knocked back
+        self:applyKnockback(other)
+        other:applyKnockback(self)
         self.isClashing = true
         other.isClashing = true
-        self.clashTime = currentTime
-        other.clashTime = currentTime
+        self.clashTime = love.timer.getTime()
+        other.clashTime = self.clashTime
         self.lostClash = false
         other.lostClash = false
     else
-        -- Different attack types, the heavier one wins
+        -- Determine winner and loser
+        local winner, loser
         if myAttackWeight > opponentAttackWeight or other.stamina == 0 then
-            self:winClash(other)
-            self.lostClash = false
-            other.lostClash = true
-        elseif opponentAttackWeight > myAttackWeight or self.stamina == 0 then
-            other:winClash(self)
-            self.lostClash = true
-            other.lostClash = false
+            winner = self
+            loser = other
+        else
+            winner = other
+            loser = self
         end
 
-        self.isClashing = true
-        other.isClashing = true
-        self.clashTime = currentTime
-        other.clashTime = currentTime
+        -- Apply knockback and damage
+        loser.pendingDamage = winner.attacks[loser.attackType].damage / 2
+        loser.knockbackApplied = true
+        loser:applyKnockback(winner)
+
+        winner.isClashing = true
+        loser.isClashing = true
+        winner.clashTime = love.timer.getTime()
+        loser.clashTime = winner.clashTime
+
+        winner.lostClash = false
+        loser.lostClash = true
     end
 end
 
 function Fighter:handleKnockback(dt)
     local windowWidth = love.graphics.getWidth()
 
+    -- Handle knockback delay
     if self.knockbackDelayTimer > 0 then
         self.knockbackDelayTimer = self.knockbackDelayTimer - dt
         if self.knockbackDelayTimer <= 0 then
@@ -604,37 +632,36 @@ function Fighter:handleKnockback(dt)
         return
     end
 
+    -- Handle active knockback
     if self.knockbackActive and self.state ~= ANIM_STATE_RUN then
-        -- Check if the fighter is close to the target position to stop
-        if math.abs(self.x - self.knockbackTargetX) < 1 then
-            self.knockbackActive = false -- Stop knockback when close to target
+        local distanceToTarget = math.abs(self.x - self.knockbackTargetX)
+
+        -- Stop knockback when close to the target position or out of bounds
+        if distanceToTarget < 1 or self.x <= 0 or (self.x + self.width) >= windowWidth then
+            self.knockbackActive = false
             self.isClashing = false
 
-            -- Apply pending damage after knockback
+            -- Apply pending damage, if any
             if self.pendingDamage and self.knockbackApplied then
                 self:takeDamage(self.pendingDamage)
                 self.pendingDamage = nil
                 self.knockbackApplied = false
-                self.isClashing = false
             end
-        else -- Move incrementally towards the target
-            local knockbackStep = self.knockbackSpeed * dt * self.direction * -1 -- Move in the opposite direction
-            local newX = self.x + knockbackStep
-
-            -- Ensure the new position is within bounds
-            if newX < 0 then
-                self.x = 0
-                self.knockbackActive = false -- Stop knockback when close to target
-                self.isClashing = false
-            elseif newX + self.width > windowWidth then
-                self.x = windowWidth - self.width
-                self.knockbackActive = false -- Stop knockback when close to target
-                self.isClashing = false
-            else
-                self.x = newX -- Move incrementally towards target
-            end
+            return
         end
+
+        -- Move towards the knockback target
+        self:startKnockback(dt)
     end
+end
+
+function Fighter:startKnockback(dt)
+    local knockbackStep = self.knockbackSpeed * dt * self.direction * -1 -- Move in the opposite direction
+    local newX = self.x + knockbackStep
+
+    -- Clamp position within screen bounds
+    local windowWidth = love.graphics.getWidth()
+    self.x = math.max(0, math.min(newX, windowWidth - self.width))
 end
 
 function Fighter:startDash(direction)
@@ -660,9 +687,15 @@ function Fighter:startRecovery()
 end
 
 function Fighter:startStun()
-    self.stunnedTimer = 1
-    self:setAnimState(ANIM_STATE_STUNNED)
+    if self.state == ANIM_STATE_STUNNED then
+        return -- Exit early if already stunned
+    end
 
+    -- Set stunned state and timer
+    self.stunnedTimer = 3
+
+    -- Set stunned animation and play sound
+    self:setAnimState(ANIM_STATE_STUNNED)
     SoundManager:playSound(self.sounds.hit)
 end
 
@@ -707,40 +740,12 @@ function Fighter:startAttack(attackType)
     SoundManager:playSound(self.sounds[attackType], {clone = true})
 end
 
-function Fighter:applyStun()
-    self.isStunned = true
-    self.stunnedTimer = 1
-    self:setAnimState(ANIM_STATE_STUNNED)
-    SoundManager:playSound(self.sounds.hit)
-end
-
-function Fighter:recoverStamina(dt)
-    if self.state == ANIM_STATE_IDLE and self.stamina < self.maxStamina then
-        self.stamina = self.stamina + self.staminaRecoveryRate * dt
-        if self.stamina > self.maxStamina then
-            self.stamina = self.maxStamina
-        end
-    end
-end
-
 function Fighter:checkXCollision(newX, newY, other)
     return not (newX + self.width <= other.x or newX >= other.x + other.width or newY + self.height <= other.y or
         newY >= other.y + other.height)
 end
 
 function Fighter:checkYCollision(newY, other)
-    local feetY = self.y + self.height
-    local headY = other.y
-    local isOnHead = (self.x + self.width > other.x and self.x < other.x + other.width) and (feetY >= headY and feetY <= headY + 10)
-
-    if isOnHead and self.dy > 0 then
-        -- Apply stun
-        other:applyStun()
-        -- Apply bounce
-        self.dy = self.jumpStrength * 0.5 -- Adjust bounce strength
-        return true
-    end
-
     return not (self.x + self.width <= other.x or self.x >= other.x + other.width or newY + self.height < other.y or
         newY > other.y + other.height)
 end
@@ -760,7 +765,7 @@ function Fighter:getAttackWeight(attackType)
     return weights[attackType] or 0
 end
 
-function Fighter:applyKnockback()
+function Fighter:applyKnockback(other)
     local baseKnockbackDelay = self.knockbackDelay
     local attackType = self.attackType or ATTACK_TYPE_LIGHT
 
@@ -776,15 +781,9 @@ function Fighter:applyKnockback()
     self.knockbackDelayTimer = baseKnockbackDelay -- Set the delay timer
     self.lostClash = false -- Reset lost clash flag
 
-    -- Play clash sound effect
-    SoundManager:playSound(self.sounds.clash, {preventOverlap = true})
-end
-
-function Fighter:winClash(loser)
-    -- Instead of applying damage immediately, set a flag to apply it later
-    loser.pendingDamage = self.attacks[loser.attackType].damage / 2
-    loser.knockbackApplied = true
-    loser:applyKnockback()
+    if not self.knockbackApplied and not other.knockbackApplied then
+        SoundManager:playSound(self.sounds.clash, {clone = true})
+    end       
 end
 
 function Fighter:getAttackHitbox()
@@ -910,8 +909,19 @@ function Fighter:drawSprite()
         local posX = self.x + offsetX + (self.scale.ox * self.direction)
         local posY = self.y + offsetY + self.scale.oy
 
+        -- Flash white if stunned
+        if self.state == ANIM_STATE_STUNNED then
+            -- Alternate between full white and normal color for flashing effect
+            local time = love.timer.getTime()
+            local alpha = math.abs(math.sin(time * 10)) -- Oscillates between 0 and 1
+            love.graphics.setColor(1, 1, 1, alpha) -- White with pulsing opacity
+        end
+
         -- Draw the current animation
         self.currentAnimation:draw(sprite, posX, posY, angle, scaleX, scaleY)
+
+        -- Reset color to default after drawing
+        love.graphics.setColor(1, 1, 1, 1)
 
         -- Debug information
         if _G.isDebug and self.id == 1 then

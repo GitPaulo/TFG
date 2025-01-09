@@ -91,12 +91,9 @@ function Game:update(dt)
     self.fighter1:update(dt, self.fighter2)
     self.fighter2:update(dt, self.fighter1)
 
-    -- Flash logic
+    -- Game wide flash when fighters are clashing
     if self.fighter1.isClashing or self.fighter2.isClashing then
-        if not self.flashActive then
-            self.flashActive = true
-            self.flashStartTime = love.timer.getTime()
-        end
+        self:startFlash(0.3)
     end
 
     -- Check for game over - leave this block last
@@ -138,6 +135,9 @@ function Game:render()
 
     -- Block
     self:drawBlock()
+
+    -- Stunned
+    self:drawStunText()
 
     -- Flash screen when fighters collide
     self:drawFlash()
@@ -181,20 +181,48 @@ function Game:drawBlock()
     end
 end
 
+function Game:drawStunText()
+    if self.fighter1.state == ANIM_STATE_STUNNED then
+        love.graphics.setFont(self.eventFont)
+        love.graphics.setColor(1, 0, 0, 1)
+        love.graphics.print('Stunned', self.fighter1.x - 18, self.fighter1.y - 22)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+    end
+
+    if self.fighter2.state == ANIM_STATE_STUNNED then
+        love.graphics.setFont(self.eventFont)
+        love.graphics.setColor(1, 0, 0, 1)
+        love.graphics.print('Stunned', self.fighter2.x - 18, self.fighter2.y - 22)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+    end
+end
+
 function Game:drawFlash()
     if not self.flashActive then
         return
     end
 
-    local elapsedTime = love.timer.getTime() - self.flashStartTime
+    -- Calculate elapsed time
+    local currentTime = love.timer.getTime()
+    local elapsedTime = currentTime - self.flashStartTime
+
     if elapsedTime < self.flashDuration then
-        local alpha = 1 - (elapsedTime / self.flashDuration) -- Fade out smoothly
-        love.graphics.setColor(1, 1, 1, alpha) -- White with decreasing opacity
+        -- Compute the alpha (opacity) value for the fade-out effect
+        local alpha = math.max(0, 1 - (elapsedTime / self.flashDuration)) -- Ensure alpha doesn't go below 0
+        love.graphics.setColor(1, 1, 1, alpha)
         love.graphics.rectangle("fill", 0, 0, BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+
+        -- Reset the color
+        love.graphics.setColor(1, 1, 1, 1)
     else
         self.flashActive = false
     end
+end
+
+function Game:startFlash(duration)
+    self.flashActive = true
+    self.flashStartTime = love.timer.getTime()
+    self.flashDuration = duration
 end
 
 function Game:drawGameOverScreen()
