@@ -15,34 +15,32 @@ function Loading:enter(params)
     self.currentSongIndex = 1
     self.loadingStarted = false
     self.startTime = love.timer.getTime()
-    self.loadingCoroutine =
-        coroutine.create(
-        function()
-            self:loadSongs()
-            self:loadFighters()
-            self.stateMachine:change(
-                'game',
-                {useAI = self.useAI, songs = self.songs, fighter1 = self.fighter1, fighter2 = self.fighter2}
-            )
-        end
-    )
+    self.loadingFont = love.graphics.newFont(26)
+
+    self.loadingCoroutine = coroutine.create(function()
+        self:loadSongs()
+        self:loadFighters()
+        self.stateMachine:change('game', {
+            useAI = self.useAI,
+            songs = self.songs,
+            fighter1 = self.fighter1,
+            fighter2 = self.fighter2,
+        })
+    end)
 end
 
 function Loading:loadFighters()
-    -- TODO: Very dubious code
     local fighter1Data = table.deepcopy(require('fighters.' .. string.lower(self.selectedFighters[1])))
     local fighter2Data = table.deepcopy(require('fighters.' .. string.lower(self.selectedFighters[2])))
 
-    -- TODO: Move to config
     local startPos1 = {100, 200}
     local startPos2 = {600, 200}
-    self.fighter1 =
-        Fighter:new(
+
+    self.fighter1 = Fighter:new(
         1,
         false, -- AI
         fighter1Data.name,
-        startPos1[1],
-        startPos1[2],
+        startPos1[1], startPos1[2],
         fighter1Data.scale,
         KeyMappings.fighter1Controls,
         fighter1Data.traits,
@@ -52,13 +50,11 @@ function Loading:loadFighters()
         fighter1Data.soundFXConfig
     )
 
-    self.fighter2 =
-        Fighter:new(
+    self.fighter2 = Fighter:new(
         2,
         self.useAI, -- AI
         fighter2Data.name,
-        startPos2[1],
-        startPos2[2],
+        startPos2[1], startPos2[2],
         fighter2Data.scale,
         KeyMappings.fighter2Controls,
         fighter2Data.traits,
@@ -83,7 +79,7 @@ end
 
 function Loading:update(dt)
     if not self.loadingStarted then
-        if love.timer.getTime() - self.startTime > 1 then -- 1-second delay
+        if love.timer.getTime() - self.startTime > 1 then
             self.loadingStarted = true
         else
             return
@@ -102,24 +98,19 @@ function Loading:update(dt)
 end
 
 function Loading:render()
+    love.graphics.setFont(self.loadingFont)
     love.graphics.clear(0, 0, 0, 1)
     love.graphics.printf('Loading...', 0, love.graphics.getHeight() / 2 - 40, love.graphics.getWidth(), 'center')
+
     if self.songs then
         local progress = (self.currentSongIndex - 1) / #self.songs
-        love.graphics.rectangle(
-            'fill',
-            love.graphics.getWidth() / 4,
-            love.graphics.getHeight() / 2,
-            love.graphics.getWidth() / 2 * progress,
-            20
-        )
-        love.graphics.rectangle(
-            'line',
-            love.graphics.getWidth() / 4,
-            love.graphics.getHeight() / 2,
-            love.graphics.getWidth() / 2,
-            20
-        )
+        local barX = love.graphics.getWidth() / 4
+        local barY = love.graphics.getHeight() / 2
+        local barWidth = love.graphics.getWidth() / 2
+        local barHeight = 20
+
+        love.graphics.rectangle('fill', barX, barY, barWidth * progress, barHeight)
+        love.graphics.rectangle('line', barX, barY, barWidth, barHeight)
     end
 end
 

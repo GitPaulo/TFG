@@ -17,6 +17,7 @@ function Game:enter(params)
     self.timer = 0
     self.gameOver = false
     self.winner = nil
+    self.paused = false
 
     -- Fighter setup
     self.fighter1 = params.fighter1
@@ -47,7 +48,6 @@ function Game:enter(params)
     self:playCurrentSong()
 
     -- Load font for FPS counter
-    self.fpsFont = love.graphics.newFont(12)
     self.gameOverFont = love.graphics.newFont(32)
     self.winnerFont = love.graphics.newFont(20)
     self.instructionsFont = love.graphics.newFont(16)
@@ -61,6 +61,13 @@ end
 function Game:update(dt)
     if self.gameOver then
         return
+    end
+
+    if self.paused then
+        self.music:pause()
+        return
+    else
+        self.music:play()
     end
 
     self.timer = self.timer + dt * SPEED
@@ -142,10 +149,10 @@ function Game:render()
     -- Flash screen when fighters collide
     self:drawFlash()
 
-    -- Render health bars
-    self:drawHealthBars()
+    -- Render health and stamina
+    self:drawHealthAndStaminaBars()
 
-    -- Render recovery progress bars
+    -- Render recovery
     self:drawRecoveryBars() 
 
     -- Render FFT visualizer
@@ -156,12 +163,8 @@ function Game:render()
         self:drawGameOverScreen()
     end
 
-    -- Render FPS counter in the top right corner
-    if _G.isDebug then
-        love.graphics.setFont(self.fpsFont)
-        love.graphics.setColor(1, 1, 1, 1)
-        local fps = love.timer.getFPS()
-        love.graphics.print('FPS: ' .. fps, BACKGROUND_FRAME_WIDTH - 60, 10)
+    if self.paused then
+        self:drawPausedScreen()
     end
 end
 
@@ -241,33 +244,48 @@ function Game:drawGameOverScreen()
 end
 
 function Game:drawRecoveryBars()
-    local function drawRecoveryBar(fighter)
-        local currentTime = love.timer.getTime()
-        local lastAttackType = fighter.lastAttackType
+    -- Draw recovery bar for Fighter 1
+    local currentTime = love.timer.getTime()
+    local lastAttackType1 = self.fighter1.lastAttackType
 
-        -- Ensure lastAttackType exists in fighter.attacks
-        local recoveryDuration =
-            (lastAttackType and fighter.attacks[lastAttackType]) and fighter.attacks[lastAttackType].recovery or 0
-        local elapsedTime = currentTime - (fighter.recoveryEndTime - recoveryDuration)
-        local progress = math.min(elapsedTime / recoveryDuration, 1) -- Ensure progress doesn't exceed 1
+    -- Ensure lastAttackType exists in fighter.attacks
+    local recoveryDuration1 =
+        (lastAttackType1 and self.fighter1.attacks[lastAttackType1]) and self.fighter1.attacks[lastAttackType1].recovery or 0
+    local elapsedTime1 = currentTime - (self.fighter1.recoveryEndTime - recoveryDuration1)
+    local progress1 = math.min(elapsedTime1 / recoveryDuration1, 1) -- Ensure progress doesn't exceed 1
 
-        local barWidth = 44 -- Full width of the bar
-        local barHeight = 4
-        local x = fighter.id == 1 and 10 or love.graphics.getWidth() - 10 - barWidth
-        local y = 45 -- Position just under the stamina bar
+    local barWidth = 44 -- Full width of the bar
+    local barHeight = 4
+    local x1 = 10 -- Left position for Fighter 1's bar
+    local y1 = 45 -- Position just under the stamina bar
 
-        love.graphics.setColor(1, 1, 1, 0.5) -- Background color
-        love.graphics.rectangle('fill', x, y, barWidth, barHeight)
+    love.graphics.setColor(1, 1, 1, 0.5) -- Background color
+    love.graphics.rectangle('fill', x1, y1, barWidth, barHeight)
 
-        love.graphics.setColor(1, 1, 1, 1) -- Progress color
-        love.graphics.rectangle('fill', x, y, barWidth * progress, barHeight)
+    love.graphics.setColor(1, 1, 1, 1) -- Progress color
+    love.graphics.rectangle('fill', x1, y1, barWidth * progress1, barHeight)
 
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
-    end
+    love.graphics.setColor(1, 1, 1, 1) -- Reset color
 
-    -- Draw recovery bars for both fighters
-    drawRecoveryBar(self.fighter1)
-    drawRecoveryBar(self.fighter2)
+    -- Draw recovery bar for Fighter 2
+    local lastAttackType2 = self.fighter2.lastAttackType
+
+    -- Ensure lastAttackType exists in fighter.attacks
+    local recoveryDuration2 =
+        (lastAttackType2 and self.fighter2.attacks[lastAttackType2]) and self.fighter2.attacks[lastAttackType2].recovery or 0
+    local elapsedTime2 = currentTime - (self.fighter2.recoveryEndTime - recoveryDuration2)
+    local progress2 = math.min(elapsedTime2 / recoveryDuration2, 1) -- Ensure progress doesn't exceed 1
+
+    local x2 = love.graphics.getWidth() - 10 - barWidth -- Right position for Fighter 2's bar
+    local y2 = 45 -- Same vertical position as Fighter 1
+
+    love.graphics.setColor(1, 1, 1, 0.5) -- Background color
+    love.graphics.rectangle('fill', x2, y2, barWidth, barHeight)
+
+    love.graphics.setColor(1, 1, 1, 1) -- Progress color
+    love.graphics.rectangle('fill', x2 + barWidth * (1 - progress2), y2, barWidth * progress2, barHeight)
+
+    love.graphics.setColor(1, 1, 1, 1) -- Reset color
 end
 
 function Game:buildBackground()
@@ -287,7 +305,7 @@ function Game:buildBackground()
     end
 end
 
-function Game:drawHealthBars()
+function Game:drawHealthAndStaminaBars()
     local barWidth = 300
     local barHeight = 20
     local padding = 10
@@ -315,24 +333,26 @@ function Game:drawHealthBars()
     )
 
     -- Fighter 2 health bar
+    local fighter2HealthWidth = barWidth * (self.fighter2.health / self.fighter2.maxHealth)
     love.graphics.setColor(1, 0, 0, 1)
     love.graphics.rectangle('fill', love.graphics.getWidth() - barWidth - padding, padding, barWidth, barHeight)
     love.graphics.setColor(0, 1, 0, 1)
     love.graphics.rectangle(
         'fill',
-        love.graphics.getWidth() - barWidth - padding,
+        love.graphics.getWidth() - barWidth - padding + (barWidth - fighter2HealthWidth),
         padding,
-        barWidth * (self.fighter2.health / self.fighter2.maxHealth),
+        fighter2HealthWidth,
         barHeight
     )
 
     -- Fighter 2 stamina bar
+    local fighter2StaminaWidth = barWidth * (self.fighter2.stamina / self.fighter2.maxStamina)
     love.graphics.setColor(0, 0, 1, 1)
     love.graphics.rectangle(
         'fill',
-        love.graphics.getWidth() - barWidth - padding,
+        love.graphics.getWidth() - barWidth - padding + (barWidth - fighter2StaminaWidth),
         padding + barHeight + 3,
-        barWidth * (self.fighter2.stamina / self.fighter2.maxStamina),
+        fighter2StaminaWidth,
         barHeight / 4
     )
 
@@ -359,9 +379,18 @@ function Game:drawFFT()
     end
 end
 
+function Game:drawPausedScreen()
+    love.graphics.setFont(self.gameOverFont)
+    love.graphics.setColor(1, 1, 0, 1) -- Yellow color for paused text
+    love.graphics.printf('Paused', 0, BACKGROUND_FRAME_HEIGHT / 2 - 20, BACKGROUND_FRAME_WIDTH, 'center')
+    love.graphics.setColor(1, 1, 1, 1) -- Reset color
+end
+
 function Game:keypressed(key)
     if key == 'escape' then
         self.stateMachine:change('menu')
+    elseif key == 'b' then
+        self.paused = not self.paused
     end
 end
 

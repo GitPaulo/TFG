@@ -5,7 +5,7 @@ local Controls = {}
 local WINDOW_WIDTH = 425
 local WINDOW_HEIGHT = 281
 local PADDING = 10
-local COLUMN_WIDTH = 200
+local COLUMN_WIDTH = 110
 local MAX_CONTROLS_PER_COLUMN = 3
 
 function Controls:enter(params)
@@ -62,11 +62,11 @@ function Controls:render()
 
     -- Render awaiting key message
     if self.awaitingKey then
-        love.graphics.setFont(self.instructionFont)
+        love.graphics.setFont(self.smallFont)
         love.graphics.printf(
             "Press a new key to bind for " .. self.currentKey,
             0,
-            WINDOW_HEIGHT - 50,
+            120,
             WINDOW_WIDTH,
             "center"
         )

@@ -5,7 +5,9 @@ return {
         jump = 'w',
         light = 'e',
         medium = 'r',
-        heavy = 't'
+        heavy = 't',
+        interact = 'f',
+        grab = 'g'
     },
     fighter2Controls = {
         left = 'h',
@@ -13,6 +15,8 @@ return {
         jump = 'u',
         light = 'i',
         medium = 'o',
-        heavy = 'p'
+        heavy = 'p',
+        interact = 'f',
+        grab = ';'
     }
 }

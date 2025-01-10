@@ -6,13 +6,10 @@ A tiny Love2D fighting game.
 
 https://github.com/user-attachments/assets/ea31652e-d1e4-4c43-9542-98eb9240b35c
 
-
-
-
 #### Controls
 
-- Fighter 1: `WASD, ERT`
-- Fighter 2: `UHJK, IOP`
+- Fighter 1: `WASD ERT FG`
+- Fighter 2: `UHJK IOP L;`
 
 #### Controller Support?
 
@@ -40,17 +37,19 @@ python fft/fft.py
 
 ## Acknowledgements
 
-I do not own any of the assets used in this game.
+I do **not** own any of the assets used in this game, they were acquired on free licenses or paid for non-profit usage.
 
 ## TODO
 
+- [ ] Win Loss counters? Rounds?
+- [ ] Fix sound duplication and cleanup sound manager
+- [ ] Clashing is still buggy (flashing and knockback)
 - [ ] Improve game over screen, maybe keep track of P1 vs P2 wins?
 - [ ] Add more 300x800 backgrounds
-- [ ] Add more attacks
-  - [ ] Grab without animation somehow
-  - [ ] Jump squish attack? with a bounce!!! and that gets rid of weird top interactions
-- [ ] Rock entity! Interact with rock (pray)?
-- [ ] Fix basic AI and settings passing logic
+- [ ] Uses for the interact action
+  - Rock entity
+  - Emote  
+- [ ] Finish basic AI to be fun to play against
 - [ ] Fix sprite scaling in character select
 - [ ] Countdown to fight (maybe not explicit) and fighter enter anims?
-- [ ] Keymappings get reset on game over
+- [ ] Keymappings get reset on game over bug

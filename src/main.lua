@@ -16,7 +16,11 @@ local KeyMappings, Menu, Game, CharacterSelect, Loading, Settings, Controls, Sta
 local gStateMachine
 local tickPeriod = 1 / _G.FPS_CAP -- seconds per tick
 local accumulator = 0.0
+local frameCount = 0
+local fpsTimer = 0
+local fpsFont = love.graphics.newFont(12)
 
+-- State Machine Initialization
 function love.load()
     love.graphics.setDefaultFilter('nearest', 'nearest')
 
@@ -37,29 +41,46 @@ function love.load()
     love.keyboard.keysPressed = {}
 end
 
+-- Game Update Logic
 function love.update(dt)
-    -- Game loop runs at a fixed rate
+    -- Fixed-rate game loop
     accumulator = accumulator + dt
     while accumulator >= tickPeriod do
         SoundManager:update()
         gStateMachine:update(tickPeriod)
         accumulator = accumulator - tickPeriod
         love.keyboard.keysPressed = {}
-    end    
+    end
+
+    -- FPS tracking
+    fpsTimer = fpsTimer + dt
+    frameCount = frameCount + 1
+    if fpsTimer >= 1 then
+        _G.actualFPS = frameCount
+        frameCount = 0
+        fpsTimer = fpsTimer - 1
+    end
 end
 
+-- Game Render Logic
 function love.draw()
     gStateMachine:render()
+
+    -- Debug FPS Display
+    if _G.isDebug then
+        love.graphics.setFont(fpsFont)
+        love.graphics.setColor(1, 1, 1, 1)
+        local width = love.graphics.getWidth()
+        love.graphics.print('FPS: ' .. _G.actualFPS, width - 60, 10)
+    end
 end
 
--- Create a table to store key states
-local keyStates = {}
-
+local keyStates = {} -- Store key states
 function love.keyboard.setKeyState(key, isPressed)
-    if key then -- Add this check to ensure key is not nil
+    if key then
         keyStates[key] = isPressed
     else
-        print('Warning: Attempt to set state for nil key') -- Add a warning to debug potential issues
+        print('Warning: Attempt to set state for nil key') -- Debugging invalid key
     end
 end
 
@@ -76,15 +97,17 @@ function love.mousepressed(x, y, button)
 end
 
 function love.keypressed(key, scancode, isrepeat)
-    --Debug
-    if key == "rctrl" then --set to whatever key you want to use
+    if key == "rctrl" then -- Debug key
         debug.debug()
     end
+
     love.keyboard.keysPressed[key] = true
     love.keyboard.setKeyState(key, true)
+
     if _G.isDebug then
-        print('Key Pressed: ', key) -- Debugging statement to check keypresses
+        print('Key Pressed: ', key) -- Debugging key press
     end
+
     gStateMachine:keypressed(key)
 end
 
