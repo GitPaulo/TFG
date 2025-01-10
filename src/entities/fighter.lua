@@ -269,7 +269,7 @@ function Fighter:updateActions(dt, other)
 end
 
 function Fighter:handleStun(dt)
-    if state ~= ANIM_STATE_STUNNED then
+    if self.state ~= ANIM_STATE_STUNNED then
         return
     end
 
@@ -278,7 +278,7 @@ function Fighter:handleStun(dt)
 
     -- Check if stun duration has ended
     if self.stunnedTimer <= 0 then
-        self:setAnimState(ANIM_STATE_IDLE) -- Transition back to idle state
+        self:setAnimState(ANIM_STATE_IDLE)
     end
 end
 
@@ -792,15 +792,16 @@ function Fighter:getAttackHitbox()
     end
 
     local hitbox = self.hitboxes[self.attackType]
-    local hitboxX =
-        self.direction == 1 and (self.x + self.width + (hitbox.ox or 0)) or (self.x - hitbox.width + (hitbox.ox or 0))
+    local hitboxX = self.direction == 1 
+        and (self.x + self.width + (hitbox.ox or 0)) 
+        or (self.x - hitbox.width + (hitbox.ox or 0))
 
+    -- Ensure the hitbox remains within the screen bounds
     return {
-        x = hitboxX,
+        x = math.max(0, hitboxX),
         y = self.y + (self.height - hitbox.height) / 2 + (hitbox.oy or 0),
         width = hitbox.width,
-        height = hitbox.height,
-        damage = hitbox.damage
+        height = hitbox.height
     }
 end
 
@@ -859,8 +860,12 @@ function Fighter:setAnimState(newState)
     end
 
     -- Get caller info
-    local callerInfo = debug.getinfo(2, "n") -- Level 2 is the function that called this one
-    local callerName = callerInfo and callerInfo.name or "unknown"
+    if _G.Debug then 
+        local callerInfo = debug.getinfo(2, "n") -- Level 2 is the function that called this one
+        local callerName = callerInfo and callerInfo.name or "unknown"
+        print('=> Fighter:setAnimState called by:')
+        print('Caller:', callerName, 'State:', self.state, '->', newState)
+    end
 
     self.state = newState
 
