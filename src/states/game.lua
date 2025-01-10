@@ -51,7 +51,7 @@ function Game:enter(params)
     self.gameOverFont = love.graphics.newFont(32)
     self.winnerFont = love.graphics.newFont(20)
     self.instructionsFont = love.graphics.newFont(16)
-    self.eventFont = love.graphics.newFont(20)
+    self.eventFont = love.graphics.newFont(19)
 end
 
 function Game:exit()
@@ -106,15 +106,6 @@ function Game:update(dt)
     -- Check for game over - leave this block last
     local hasFighterDied = self.fighter1.state == 'death' or self.fighter2.state == 'death'
     if hasFighterDied then
-        -- Check if death animation is still playing
-        if self.fighter1.state == 'death' then
-            self.fighter1:checkDeathAnimationFinished()
-        end
-        if self.fighter2.state == 'death' then
-            self.fighter2:checkDeathAnimationFinished()
-        end
-
-        -- Only set game over when death animations are finished
         if self.fighter1.deathAnimationFinished or self.fighter2.deathAnimationFinished then
             self.gameOver = true
             if self.fighter1.deathAnimationFinished and self.fighter2.deathAnimationFinished then
@@ -171,32 +162,60 @@ end
 function Game:drawBlock()
     if self.fighter1.isBlockingDamage then
         love.graphics.setFont(self.eventFont)
-        love.graphics.setColor(1, 1, 0, 1)
+        
+        -- Draw shadow
+        love.graphics.setColor(0, 0, 0, 0.5)
+        love.graphics.print('Blocked', self.fighter1.x - 17, self.fighter1.y - 23)
+
+        -- Draw main text
+        love.graphics.setColor(.3, .3, 1, 1) -- Blue
         love.graphics.print('Blocked', self.fighter1.x - 18, self.fighter1.y - 22)
+
         love.graphics.setColor(1, 1, 1, 1) -- Reset color
     end
 
     if self.fighter2.isBlockingDamage then
         love.graphics.setFont(self.eventFont)
-        love.graphics.setColor(1, 1, 0, 1)
+        
+        -- Draw shadow
+        love.graphics.setColor(0, 0, 0, 0.5)
+        love.graphics.print('Blocked', self.fighter2.x - 17, self.fighter2.y - 23)
+
+        -- Draw main text
+        love.graphics.setColor(.3, .3, 1, 1)
         love.graphics.print('Blocked', self.fighter2.x - 18, self.fighter2.y - 22)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+
+        love.graphics.setColor(1, 1, 1, 1)
     end
 end
 
 function Game:drawStunText()
     if self.fighter1.state == ANIM_STATE_STUNNED then
         love.graphics.setFont(self.eventFont)
-        love.graphics.setColor(1, 0, 0, 1)
+        
+        -- Draw shadow
+        love.graphics.setColor(0, 0, 0, 0.5)
+        love.graphics.print('Stunned', self.fighter1.x - 17, self.fighter1.y - 22)
+
+        -- Draw main text
+        love.graphics.setColor(1, 0, 0, 1) -- Red
         love.graphics.print('Stunned', self.fighter1.x - 18, self.fighter1.y - 22)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+
+        love.graphics.setColor(1, 1, 1, 1)
     end
 
     if self.fighter2.state == ANIM_STATE_STUNNED then
         love.graphics.setFont(self.eventFont)
+        
+        -- Draw shadow
+        love.graphics.setColor(0, 0, 0, 0.5)
+        love.graphics.print('Stunned', self.fighter2.x - 17, self.fighter2.y - 23)
+
+        -- Draw main text
         love.graphics.setColor(1, 0, 0, 1)
         love.graphics.print('Stunned', self.fighter2.x - 18, self.fighter2.y - 22)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+
+        love.graphics.setColor(1, 1, 1, 1)
     end
 end
 

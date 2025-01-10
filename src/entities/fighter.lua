@@ -300,6 +300,7 @@ function Fighter:handlePlayerInput(dt, other)
     local startState = self.state
     -- Check conditions
     local isAttacking = self.isAttacking
+    local isDead = self.state == ANIM_STATE_DEATH
     local isJumping = self.state == ANIM_STATE_JUMP
     local isDashing = self.state == ANIM_STATE_DASHING
     local isStunned = self.state == ANIM_STATE_STUNNED
@@ -316,7 +317,7 @@ function Fighter:handlePlayerInput(dt, other)
     end
 
     -- Block (new) input in blocked states
-    if isDashing or isHit or isStunned or isGrabbing or self.isClashing or self.knockbackActive or self.isStunned or self.isAttacking then
+    if isDead or isDashing or isHit or isStunned or isGrabbing or self.isClashing or self.knockbackActive or self.isStunned or self.isAttacking then
         return
     end
 
@@ -947,36 +948,41 @@ end
 
 function Fighter:takeDamage(damage)
     self.health = self.health - damage
+
+    -- Check if the fighter is dead
     if self.health <= 0 then
-        -- Dead
-        self.health = 0
-        -- Helps ensure the death animation is played only once
+        self.health = 0 -- Clamp health to 0
+
+        -- Handle death state
         if self.state ~= ANIM_STATE_DEATH then
             self:setAnimState(ANIM_STATE_DEATH)
 
-            -- Play death animation
-            self.currentAnimation = self.animations.death
-            self.currentAnimation:gotoFrame(1)
-
-            -- Play death sound
+            -- Play death animation and sound
+            if self.animations.death then
+                self.currentAnimation = self.animations.death
+                self.currentAnimation:gotoFrame(1)
+            end
             SoundManager:playSound(self.sounds.death)
 
-            -- Set the start time for the death animation
+            -- Mark the start of the death animation
             self.deathAnimationStartTime = love.timer.getTime()
         end
-    else
-        self:setAnimState(ANIM_STATE_HIT)
+        return -- Exit after handling death
+    end
 
-        -- Play hit animation
+    self.isBlockingDamage = false -- Reset blocking flag
+    self:setAnimState(ANIM_STATE_HIT)
+
+    -- Play hit animation and sound
+    if self.animations.hit then
         self.currentAnimation = self.animations.hit
         self.currentAnimation:gotoFrame(1)
+    end
+    SoundManager:playSound(self.sounds.hit)
 
-        -- Play hit sound effect if available
-        SoundManager:playSound(self.sounds.hit)
-
-        -- Set state back to idle after hit animation duration
-        local hitDuration = self.currentAnimation.totalDuration
-        self.hitEndTime = love.timer.getTime() + hitDuration
+    -- Set the duration for the hit animation
+    if self.currentAnimation and self.currentAnimation.totalDuration then
+        self.hitEndTime = love.timer.getTime() + self.currentAnimation.totalDuration
     end
 end
 
@@ -997,7 +1003,7 @@ function Fighter:applyKnockback(other)
     self.lostClash = false -- Reset lost clash flag
 
     if not self.knockbackApplied and not other.knockbackApplied then
-        SoundManager:playSound(self.sounds.clash, {clone = true})
+        SoundManager:playSound(self.sounds.clash, {preventOverlap = true})
     end       
 end
 
@@ -1092,6 +1098,10 @@ function Fighter:drawSprite()
         local angle = 0
         local posX = self.x + offsetX + (self.scale.ox * self.direction)
         local posY = self.y + offsetY + self.scale.oy
+
+        if self.isBlockingDamage then
+            love.graphics.setColor(0, .1, .7, 1) -- Blue color for the outline
+        end
 
         -- Flash white if stunned
         if self.state == ANIM_STATE_STUNNED then
