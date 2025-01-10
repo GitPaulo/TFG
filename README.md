@@ -4,7 +4,7 @@ A tiny Love2D fighting game.
 
 ![alt text](.github/image_menu.png)
 
-https://github.com/user-attachments/assets/ea31652e-d1e4-4c43-9542-98eb9240b35c
+https://github.com/user-attachments/assets/eaa92371-602d-4eb4-b9a7-538af5209b7b
 
 #### Controls
 
