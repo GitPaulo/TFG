@@ -1,5 +1,4 @@
 -- Core
-
 _G.KeyMappings  = require 'keymap'
 _G.AIController = require 'ai.aicontroller'
 _G.SoundManager = require 'sound.soundmanager'

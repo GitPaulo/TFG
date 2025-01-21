@@ -1,8 +1,9 @@
 local love = _G.love;
 
--- Global
+-- Global Config
 _G.isDebug = false
--- Love Configuration
+
+-- Love2D Config
 function love.conf(t)
     t.window.width = 425
     t.window.height = 281
