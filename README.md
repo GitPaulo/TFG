@@ -1,3 +1,5 @@
+[![Create Release for Love2D Project](https://github.com/humbertodias/love-tfg/actions/workflows/release.yml/badge.svg)](https://github.com/humbertodias/love-tfg/actions/workflows/release.yml)
+
 # TFG
 
 A tiny Love2D fighting game.
