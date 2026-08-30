@@ -28,6 +28,11 @@ return {
             frames = 3,
             frameDuration = {0.1, 0.1, 0.1}
         },
+        dashing = {
+            path = 'assets/fighters/Samurai3/DASH.png',
+            frames = 8,
+            frameDuration = {0.025, 0.025, 0.025, 0.025, 0.025, 0.025, 0.025, 0.025}
+        },
         light = {
             path = 'assets/fighters/Samurai3/Attack1.png',
             frames = 5,

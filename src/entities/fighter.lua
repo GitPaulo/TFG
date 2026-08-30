@@ -7,6 +7,7 @@ local Fighter = Class:extend()
 _G.ANIM_STATE_IDLE = "idle"
 _G.ANIM_STATE_RUN = "run"
 _G.ANIM_STATE_JUMP = "jump"
+_G.ANIM_STATE_FALL = "fall"
 _G.ANIM_STATE_LIGHT_ATTACK = "light"
 _G.ANIM_STATE_MEDIUM_ATTACK = "medium"
 _G.ANIM_STATE_HEAVY_ATTACK = "heavy"
@@ -33,7 +34,24 @@ _G.FIGHTER_DASH_DURATION = 0.2
 _G.FIGHTER_GRAVITY = 1000
 _G.FIGHTER_KNOCKBACK_SPEED = 400
 _G.FIGHTER_KNOCKBACK_DELAY = 0.2
+_G.FIGHTER_HITSTOP_DURATION = 0.05 -- 3 frames of freeze on impact
 _G.FIGHTER_GRAB_RANGE = 50 -- TODO: the origin can vary by model... Bad!
+
+-- Clips that cycle. Everything else plays once and holds its final frame.
+-- spriteConfig can override this per clip with loop = true/false.
+local LOOPING_ANIMATIONS = {
+    [ANIM_STATE_IDLE] = true,
+    [ANIM_STATE_RUN] = true,
+    [ANIM_STATE_JUMP] = true,
+    [ANIM_STATE_FALL] = true,
+    [ANIM_STATE_DASHING] = true
+}
+
+-- Clips a state borrows when a fighter ships no art of its own for it
+local ANIMATION_FALLBACKS = {
+    [ANIM_STATE_FALL] = ANIM_STATE_JUMP,
+    [ANIM_STATE_DASHING] = ANIM_STATE_RUN
+}
 
 function Fighter:init(
     id,
@@ -72,6 +90,9 @@ function Fighter:init(
     -- Check
     self:assertRequiredTraits()
 
+    -- Simulation clock, so pausing freezes every timer with the animations
+    self.time = 0
+
     -- Position and movement
     self.dy = 0
     self.direction = (id == 1) and DIRECTION_RIGHT or DIRECTION_LEFT -- Set direction to right for player 1 and left for player 2
@@ -95,10 +116,11 @@ function Fighter:init(
     self.dashDuration = FIGHTER_DASH_DURATION
     self.dashEndTime = 0
     self.dashStaminaCost = 25
-    self.dashLastPressTime = {left = 0, right = 0}
+    self.dashLastPressTime = {left = -math.huge, right = -math.huge}
     self.dashPressWindow = 0.3
     -- Character State: clash
     self.isClashing = false
+    self.clashApplied = false -- latches a clash so it resolves once
     self.clashTime = 0
     self.knockbackTargetX = self.x
     self.knockbackActive = false
@@ -108,6 +130,7 @@ function Fighter:init(
     self.lostClash = false
     -- Character State: hit
     self.hitEndTime = 0
+    self.hitstop = 0
     self.damageApplied = false -- ensures it only every applies once
     -- Character State: recovery
     self.isRecovering = false
@@ -197,8 +220,13 @@ function Fighter:loadAnimations(configs)
         local spritesheet = self.spritesheets[key]
         local frameWidth = math.floor(spritesheet:getWidth() / frameCount)
         local frameHeight = spritesheet:getHeight()
+        local shouldLoop = config.loop
+        if shouldLoop == nil then
+            shouldLoop = LOOPING_ANIMATIONS[key] or false
+        end
 
-        animations[key] = self:createAnimation(spritesheet, frameWidth, frameHeight, frameCount, frameDuration)
+        animations[key] =
+            self:createAnimation(spritesheet, frameWidth, frameHeight, frameCount, frameDuration, shouldLoop)
     end
 
     return animations
@@ -227,15 +255,19 @@ function Fighter:loadSoundFX(configs)
     return sounds
 end
 
-function Fighter:createAnimation(image, frameWidth, frameHeight, frameCount, frameDuration)
+function Fighter:createAnimation(image, frameWidth, frameHeight, frameCount, frameDuration, shouldLoop)
     if not image then
         print('Error: Image for animation is nil')
         return nil
     end
     local grid = Anim8.newGrid(frameWidth, frameHeight, image:getWidth(), image:getHeight())
-    local animation = Anim8.newAnimation(grid('1-' .. frameCount, 1), frameDuration)
+    local onLoop
+    if not shouldLoop then
+        onLoop = 'pauseAtEnd'
+    end
+    local animation = Anim8.newAnimation(grid('1-' .. frameCount, 1), frameDuration, onLoop)
 
-    -- Used on death
+    -- Holds the last frame instead of restarting, used by every one shot clip
     function animation:pauseAtEnd()
         self:gotoFrame(frameCount)
         self:pause()
@@ -249,6 +281,18 @@ end
 --]]
 
 function Fighter:update(dt, other)
+    -- Freeze everything briefly on impact so hits land with some weight
+    if self.hitstop > 0 then
+        self.hitstop = self.hitstop - dt
+        return
+    end
+
+    self.time = self.time + dt
+
+    -- Advance the animation first so game logic and rendering agree on which
+    -- frame is on screen this tick
+    self.currentAnimation:update(dt)
+
     if self.state ~= ANIM_STATE_DEATH then
         -- Update state: update -> hit, recovery, stun, knockback
         self:updateState(dt, other)
@@ -260,9 +304,6 @@ function Fighter:update(dt, other)
         -- Update death animation
         self:updateDeathAnimation()
     end
-
-    -- Always update the current animation
-    self.currentAnimation:update(dt)
 end
 
 function Fighter:updateState(dt, other)
@@ -296,7 +337,7 @@ end
 
 function Fighter:handlePlayerInput(dt, other)
     -- Current time
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
     local startState = self.state
     -- Check conditions
     local isAttacking = self.isAttacking
@@ -396,50 +437,42 @@ function Fighter:handleStun(dt)
     -- Decrease the stun timer
     self.stunnedTimer = self.stunnedTimer - dt
     if self.stunnedTimer <= 0 then
-        self:setAnimState(ANIM_STATE_IDLE)
+        self:setAnimState(self:restingAnimState())
     end
 end
 
 function Fighter:handleAttacks(other)
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
 
     -- Check if an attack is active and handle its end
     if self.isAttacking then
         -- Set when attack hitboxes are active
-        -- Note: attackData.active = end frame
-        local attackData = self.attacks[self.attackType]
-        if attackData then
-            local currentFrame = self.currentAnimation.position
-            if currentFrame >= attackData.start and currentFrame < attackData.active then
-                self.isAttackActive = true
-            else
-                self.isAttackActive = false
-            end
-        end
+        self.isAttackActive = self:isAttackWindowOpen()
 
         -- Check if attack duration has elapsed
         if currentTime >= self.attackEndTime then
             self.isAttacking = false
             self.isAttackActive = false
             self.damageApplied = false
+            self.clashApplied = false
             self.attackType = nil
             self.attackActiveFrame = nil
             self.attackEndFrame = nil
             other.isBlockingDamage = false -- Reset blocking damage flag for other
 
-            self:setAnimState(ANIM_STATE_IDLE)           
+            self:setAnimState(self:restingAnimState())
             self:startRecovery()
         end
     end
 end
 
 function Fighter:handleDamage(other)
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
     local isHit = self.state == ANIM_STATE_HIT
     
     -- Reset hit state to idle
     if isHit and currentTime > self.hitEndTime then
-        self:setAnimState(ANIM_STATE_IDLE)
+        self:setAnimState(self:restingAnimState())
     end
 
     -- Prevent applying damage multiple times
@@ -452,6 +485,11 @@ function Fighter:handleDamage(other)
     local attackData = other.attacks[other.attackType]
     if not attackHitbox or not attackData then
         return -- Exit if no valid hitbox or attack data
+    end
+
+    -- Only the frames the attack declares as active are allowed to connect
+    if not other:isAttackWindowOpen() then
+        return
     end
 
     -- Check for hitbox overlap
@@ -475,10 +513,12 @@ function Fighter:handleDamage(other)
     -- Apply full damage
     self:takeDamage(attackData.damage)
     other.damageApplied = true
+    self:startHitstop()
+    other:startHitstop()
 end
 
 function Fighter:handleRecovery()
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
     local isRecoveryPeriodOver = currentTime >= self.recoveryEndTime
 
     -- End recovery period
@@ -502,7 +542,7 @@ end
 
 function Fighter:handleMovement(dt, other)
     local windowWidth = love.graphics.getWidth()
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
     local newX = self.x -- Starting position
 
     -- Handle dashing
@@ -583,7 +623,7 @@ function Fighter:handleJumping(dt, other)
     end
 
     -- Handle collisions
-    local isJumping = self.state == ANIM_STATE_JUMP
+    local isJumping = self.state == ANIM_STATE_JUMP or self.state == ANIM_STATE_FALL
     if newY >= groundLevel - self.height then
         -- Handle ground collision
         self.y = groundLevel - self.height
@@ -613,6 +653,10 @@ function Fighter:handleJumping(dt, other)
         self.y = newY
         self.isAirborne = true
         self.isGrounded = false
+        if isJumping then
+            -- Hold the rise pose going up and the fall pose coming down
+            self:setAnimState(self.dy > 0 and ANIM_STATE_FALL or ANIM_STATE_JUMP)
+        end
     end
 end
 
@@ -629,6 +673,13 @@ function Fighter:handleClash(other)
         return
     end
 
+    -- Both fighters run this every tick, so latch it to one resolution
+    if self.clashApplied or other.clashApplied then
+        return
+    end
+    self.clashApplied = true
+    other.clashApplied = true
+
     -- Both fighters lose stamina during clash
     self.stamina = math.max(self.stamina - 10, 0)
     other.stamina = math.max(other.stamina - 10, 0)
@@ -642,6 +693,8 @@ function Fighter:handleClash(other)
         return
     end
 
+    SoundManager:playSound(self.sounds.clash, {preventOverlap = true})
+
     -- Compare attack weights
     local myAttackWeight = self:getAttackWeight(self.attackType)
     local opponentAttackWeight = other:getAttackWeight(other.attackType)
@@ -652,7 +705,7 @@ function Fighter:handleClash(other)
         other:applyKnockback(self)
         self.isClashing = true
         other.isClashing = true
-        self.clashTime = love.timer.getTime()
+        self.clashTime = self.time
         other.clashTime = self.clashTime
         self.lostClash = false
         other.lostClash = false
@@ -674,7 +727,7 @@ function Fighter:handleClash(other)
 
         winner.isClashing = true
         loser.isClashing = true
-        winner.clashTime = love.timer.getTime()
+        winner.clashTime = self.time
         loser.clashTime = winner.clashTime
 
         winner.lostClash = false
@@ -722,7 +775,7 @@ function Fighter:handleGrab(dt, other)
         return -- Exit if not in grab state
     end
 
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
 
     -- Step 1: Position the opponent
     if not self.isGrabPositioned then
@@ -798,7 +851,7 @@ function Fighter:startDash(direction)
         return;
     end
 
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
     
     self.direction = direction
     self.dashEndTime = currentTime + self.dashDuration
@@ -809,9 +862,13 @@ function Fighter:startDash(direction)
 end
 
 function Fighter:startRecovery() 
-    local currentTime = love.timer.getTime()
+    local currentTime = self.time
     self.recoveryEndTime = currentTime + self.attacks[self.lastAttackType].recovery
     self.isRecovering = true
+end
+
+function Fighter:startHitstop()
+    self.hitstop = FIGHTER_HITSTOP_DURATION
 end
 
 function Fighter:startStun(stunnedTimer)
@@ -880,10 +937,11 @@ function Fighter:startAttack(attackType)
     self.attackType = attackType
     self.lastAttackType = attackType
     self.damageApplied = false -- Reset damage tracking for the attack
+    self.clashApplied = false
 
     -- Set attack duration and state
     local attackDuration = self.animationDurations[attackType]
-    self.attackEndTime = love.timer.getTime() + attackDuration
+    self.attackEndTime = self.time + attackDuration
     self:setAnimState(attackType)
 
     -- Play attack sound
@@ -917,6 +975,18 @@ function Fighter:getAttackWeight(attackType)
         heavy = 3
     }
     return weights[attackType] or 0
+end
+
+-- True while the frames the fighter declared as its hitbox window are on
+-- screen. attacks.start and attacks.active are both inclusive frame indices.
+function Fighter:isAttackWindowOpen()
+    local attackData = self.attacks[self.attackType]
+    if not self.isAttacking or not attackData then
+        return false
+    end
+
+    local currentFrame = self.currentAnimation.position
+    return currentFrame >= attackData.start and currentFrame <= attackData.active
 end
 
 function Fighter:getAttackHitbox()
@@ -962,11 +1032,9 @@ function Fighter:takeDamage(damage)
             if self.animations.death then
                 self.currentAnimation = self.animations.death
                 self.currentAnimation:gotoFrame(1)
+                self.currentAnimation:resume()
             end
             SoundManager:playSound(self.sounds.death)
-
-            -- Mark the start of the death animation
-            self.deathAnimationStartTime = love.timer.getTime()
         end
         return -- Exit after handling death
     end
@@ -978,12 +1046,13 @@ function Fighter:takeDamage(damage)
     if self.animations.hit then
         self.currentAnimation = self.animations.hit
         self.currentAnimation:gotoFrame(1)
+        self.currentAnimation:resume()
     end
     SoundManager:playSound(self.sounds.hit)
 
     -- Set the duration for the hit animation
     if self.currentAnimation and self.currentAnimation.totalDuration then
-        self.hitEndTime = love.timer.getTime() + self.currentAnimation.totalDuration
+        self.hitEndTime = self.time + self.currentAnimation.totalDuration
     end
 end
 
@@ -1002,10 +1071,6 @@ function Fighter:applyKnockback(other)
     self.knockbackActive = false -- Knockback will be active after delay
     self.knockbackDelayTimer = baseKnockbackDelay -- Set the delay timer
     self.lostClash = false -- Reset lost clash flag
-
-    if not self.knockbackApplied and not other.knockbackApplied then
-        SoundManager:playSound(self.sounds.clash, {preventOverlap = true})
-    end       
 end
 
 function Fighter:noKeysPressed()
@@ -1039,6 +1104,15 @@ end
     Animation State
 --]]
 
+-- The state a fighter settles into once an action ends, so air actions do not
+-- snap back to the grounded idle pose
+function Fighter:restingAnimState()
+    if self.isAirborne then
+        return self.dy > 0 and ANIM_STATE_FALL or ANIM_STATE_JUMP
+    end
+    return ANIM_STATE_IDLE
+end
+
 function Fighter:setAnimState(newState)
     -- Only change state if the new state is different from the current state
     if self.state == newState then
@@ -1055,23 +1129,20 @@ function Fighter:setAnimState(newState)
 
     self.state = newState
 
-    -- Determine the appropriate animation for the new state
-    -- Default to idle if no animation is found
-    local newAnimation = self.animations[newState] or self.animations.idle
+    -- Determine the appropriate animation for the new state, borrowing a
+    -- related clip when the fighter has none, and defaulting to idle
+    local newAnimation =
+        self.animations[newState] or self.animations[ANIMATION_FALLBACKS[newState]] or self.animations.idle
     self.currentAnimation = newAnimation
     self.currentAnimation:gotoFrame(1)
+    self.currentAnimation:resume() -- one shot clips pause themselves when done
 end
 
 function Fighter:updateDeathAnimation()
-    if self.state == ANIM_STATE_DEATH then
-        local currentTime = love.timer.getTime()
-        local elapsedTime = currentTime - self.deathAnimationStartTime
-        local deathDuration = self.animationDurations[ANIM_STATE_DEATH]
-
-        if elapsedTime >= deathDuration then
-            self.deathAnimationFinished = true
-            self.currentAnimation:pauseAtEnd() -- Pause the animation at the last frame
-        end
+    -- The death clip plays once, so anim8 pauses it on the final frame
+    if not self.animations.death or self.currentAnimation.status == 'paused' then
+        self.deathAnimationFinished = true
+        self.currentAnimation:pauseAtEnd()
     end
 end
 
@@ -1107,7 +1178,7 @@ function Fighter:drawSprite()
         -- Flash white if stunned
         if self.state == ANIM_STATE_STUNNED then
             -- Alternate between full white and normal color for flashing effect
-            local time = love.timer.getTime()
+            local time = self.time
             local alpha = math.abs(math.sin(time * 10)) -- Oscillates between 0 and 1
             love.graphics.setColor(1, 1, 1, alpha) -- White with pulsing opacity
         end

@@ -15,6 +15,7 @@ function Game:enter(params)
 
     -- Game state
     self.timer = 0
+    self.time = 0
     self.gameOver = false
     self.winner = nil
     self.paused = false
@@ -27,9 +28,10 @@ function Game:enter(params)
     assert(self.fighter2, 'Fighter 2 must be provided to the game state')
 
     -- Flash screen
-    self.flashStartTime = love.timer.getTime()
+    self.flashStartTime = 0
     self.flashDuration = 0.8
     self.flashActive = false
+    self.wasClashing = false
 
     -- AI setup (assuming fighter2 is controlled by AI)
     self.aiController = params.useAI and AIController:new(self.fighter2, self.fighter1) or nil
@@ -71,6 +73,7 @@ function Game:update(dt)
     end
 
     self.timer = self.timer + dt * SPEED
+    self.time = self.time + dt
 
     -- Check if the current song has finished playing
     if not self.music:isPlaying() then
@@ -98,10 +101,12 @@ function Game:update(dt)
     self.fighter1:update(dt, self.fighter2)
     self.fighter2:update(dt, self.fighter1)
 
-    -- Game wide flash when fighters are clashing
-    if self.fighter1.isClashing or self.fighter2.isClashing then
+    -- Game wide flash on the frame a clash starts, not for every frame it lasts
+    local isClashing = self.fighter1.isClashing or self.fighter2.isClashing
+    if isClashing and not self.wasClashing then
         self:startFlash(0.3)
     end
+    self.wasClashing = isClashing
 
     -- Check for game over - leave this block last
     local hasFighterDied = self.fighter1.state == 'death' or self.fighter2.state == 'death'
@@ -225,8 +230,7 @@ function Game:drawFlash()
     end
 
     -- Calculate elapsed time
-    local currentTime = love.timer.getTime()
-    local elapsedTime = currentTime - self.flashStartTime
+    local elapsedTime = self.time - self.flashStartTime
 
     if elapsedTime < self.flashDuration then
         -- Compute the alpha (opacity) value for the fade-out effect
@@ -243,7 +247,7 @@ end
 
 function Game:startFlash(duration)
     self.flashActive = true
-    self.flashStartTime = love.timer.getTime()
+    self.flashStartTime = self.time
     self.flashDuration = duration
 end
 
@@ -264,13 +268,12 @@ end
 
 function Game:drawRecoveryBars()
     -- Draw recovery bar for Fighter 1
-    local currentTime = love.timer.getTime()
     local lastAttackType1 = self.fighter1.lastAttackType
 
     -- Ensure lastAttackType exists in fighter.attacks
     local recoveryDuration1 =
         (lastAttackType1 and self.fighter1.attacks[lastAttackType1]) and self.fighter1.attacks[lastAttackType1].recovery or 0
-    local elapsedTime1 = currentTime - (self.fighter1.recoveryEndTime - recoveryDuration1)
+    local elapsedTime1 = self.fighter1.time - (self.fighter1.recoveryEndTime - recoveryDuration1)
     -- Nothing to recover from until the fighter has attacked at least once
     local progress1 = recoveryDuration1 > 0 and math.min(elapsedTime1 / recoveryDuration1, 1) or 1
 
@@ -293,7 +296,7 @@ function Game:drawRecoveryBars()
     -- Ensure lastAttackType exists in fighter.attacks
     local recoveryDuration2 =
         (lastAttackType2 and self.fighter2.attacks[lastAttackType2]) and self.fighter2.attacks[lastAttackType2].recovery or 0
-    local elapsedTime2 = currentTime - (self.fighter2.recoveryEndTime - recoveryDuration2)
+    local elapsedTime2 = self.fighter2.time - (self.fighter2.recoveryEndTime - recoveryDuration2)
     local progress2 = recoveryDuration2 > 0 and math.min(elapsedTime2 / recoveryDuration2, 1) or 1
 
     local x2 = love.graphics.getWidth() - 10 - barWidth -- Right position for Fighter 2's bar

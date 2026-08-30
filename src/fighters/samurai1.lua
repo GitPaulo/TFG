@@ -28,6 +28,11 @@ return {
             frames = 2,
             frameDuration = {0.1, 0.1}
         },
+        fall = {
+            path = 'assets/fighters/Samurai1/Fall.png',
+            frames = 2,
+            frameDuration = {0.1, 0.1}
+        },
         light = {
             path = 'assets/fighters/Samurai1/Attack1.png',
             frames = 6,
