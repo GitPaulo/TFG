@@ -845,6 +845,7 @@ function Fighter:startGrab(other)
     end
 
     self.isGrabPositioned = false
+    self.grabDirection = self.direction -- handleGrab consumes this on the same frame
 
     -- Set the grab state and play grab sound
     self:setAnimState(ANIM_STATE_GRAB)
@@ -1086,8 +1087,8 @@ function Fighter:render(other)
 end
 
 function Fighter:drawSprite()
-    local spriteName = self.state == ANIM_STATE_ATTACKING and self.lastAttackType or self.state
-    local sprite = self.spritesheets[spriteName] or self.spritesheets.idle
+    -- Attack states share their name with the attack type, so state is the key
+    local sprite = self.spritesheets[self.state] or self.spritesheets.idle
 
     if self.currentAnimation then
         local frameWidth, frameHeight = self.currentAnimation:getDimensions()

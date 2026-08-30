@@ -271,7 +271,8 @@ function Game:drawRecoveryBars()
     local recoveryDuration1 =
         (lastAttackType1 and self.fighter1.attacks[lastAttackType1]) and self.fighter1.attacks[lastAttackType1].recovery or 0
     local elapsedTime1 = currentTime - (self.fighter1.recoveryEndTime - recoveryDuration1)
-    local progress1 = math.min(elapsedTime1 / recoveryDuration1, 1) -- Ensure progress doesn't exceed 1
+    -- Nothing to recover from until the fighter has attacked at least once
+    local progress1 = recoveryDuration1 > 0 and math.min(elapsedTime1 / recoveryDuration1, 1) or 1
 
     local barWidth = 44 -- Full width of the bar
     local barHeight = 4
@@ -293,7 +294,7 @@ function Game:drawRecoveryBars()
     local recoveryDuration2 =
         (lastAttackType2 and self.fighter2.attacks[lastAttackType2]) and self.fighter2.attacks[lastAttackType2].recovery or 0
     local elapsedTime2 = currentTime - (self.fighter2.recoveryEndTime - recoveryDuration2)
-    local progress2 = math.min(elapsedTime2 / recoveryDuration2, 1) -- Ensure progress doesn't exceed 1
+    local progress2 = recoveryDuration2 > 0 and math.min(elapsedTime2 / recoveryDuration2, 1) or 1
 
     local x2 = love.graphics.getWidth() - 10 - barWidth -- Right position for Fighter 2's bar
     local y2 = 45 -- Same vertical position as Fighter 1

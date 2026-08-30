@@ -16,7 +16,7 @@ return {
         light = 'i',
         medium = 'o',
         heavy = 'p',
-        interact = 'f',
+        interact = 'l',
         grab = ';'
     }
 }

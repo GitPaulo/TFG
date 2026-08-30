@@ -10,6 +10,11 @@ local CHECKBOX_SIZE = 20
 local PADDING = 10
 
 function Settings:enter(params)
+    -- Controls returns here without carrying settings, so keep the current ones
+    params = params or {}
+    self.useAI = params.useAI or self.useAI or false
+    self.muteSound = params.muteSound or self.muteSound or false
+
     -- Load fonts
     self.titleFont = love.graphics.newFont(32)
     self.instructionFont = love.graphics.newFont(16)
@@ -34,7 +39,7 @@ function Settings:enter(params)
         WINDOW_HEIGHT / 2 - 60,
         CHECKBOX_SIZE,
         "Use AI for Fighter2",
-        self.useAI or false,
+        self.useAI,
         function(state)
             self.useAI = state
         end
@@ -56,7 +61,7 @@ function Settings:enter(params)
         self.debugCheckbox.y + CHECKBOX_SIZE + PADDING,
         CHECKBOX_SIZE,
         "Mute Sound",
-        self.muteSound or false,
+        self.muteSound,
         function(state)
             self.muteSound = state
             if self.muteSound then

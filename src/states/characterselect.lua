@@ -71,7 +71,7 @@ function CharacterSelect:enter(params)
 
     -- Ensure selected fighters are within bounds
     for i = 1, PLAYER_COUNT do
-        self.selectedFighters[i] = self.selectedFighters[i] % #self.characters + 1
+        self.selectedFighters[i] = math.min(self.selectedFighters[i], #self.characters)
     end
 
     -- Load fonts

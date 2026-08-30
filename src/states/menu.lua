@@ -27,11 +27,11 @@ function Menu:enter(params)
     -- For first open
     params = params or {}
 
-    -- Settings
-    self.settings = params.settings or { useAI = false, muteSound = false }
+    -- Settings, kept when a state returns here without carrying them
+    self.settings = params.settings or self.settings or { useAI = false, muteSound = false }
 
     -- Selected Fighters
-    self.selectedFighters = params.selectedFighters or { "Samurai1", "Samurai2" }
+    self.selectedFighters = params.selectedFighters or self.selectedFighters or { "Samurai1", "Samurai2" }
 
     -- Background
     self.background = love.graphics.newImage("assets/background_menu_spritesheet.png")

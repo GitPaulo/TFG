@@ -1,4 +1,4 @@
-function shallowcopy(orig)
+local function shallowcopy(orig)
     local orig_type = type(orig)
     local copy
 
@@ -14,7 +14,7 @@ function shallowcopy(orig)
     return copy
 end
 
-function deepcopy(orig)
+local function deepcopy(orig)
     local orig_type = type(orig)
     local copy
 
@@ -33,16 +33,19 @@ function deepcopy(orig)
     return copy
 end
 
-function dump(tbl, indent)
+local function serialize(tbl, indent)
     indent = indent or 0
     local toPrint = string.rep("  ", indent) .. "{\n"
     for k, v in pairs(tbl) do
         local key = type(k) == "string" and '"' .. k .. '"' or k
-        local value = type(v) == "table" and printTable(v, indent + 1) or tostring(v)
+        local value = type(v) == "table" and serialize(v, indent + 1) or tostring(v)
         toPrint = toPrint .. string.rep("  ", indent + 1) .. key .. " = " .. value .. ",\n"
     end
-    toPrint = toPrint .. string.rep("  ", indent) .. "}"
-    print(toPrint)
+    return toPrint .. string.rep("  ", indent) .. "}"
+end
+
+local function dump(tbl, indent)
+    print(serialize(tbl, indent))
 end
 
 _G.table.deepcopy = deepcopy
