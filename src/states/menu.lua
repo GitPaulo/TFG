@@ -17,7 +17,7 @@ local SETTINGS_BUTTON_Y = WINDOW_HEIGHT / 1.36 - 2 * BUTTON_HEIGHT - 20
 local CHARACTER_BUTTON_Y = SETTINGS_BUTTON_Y + BUTTON_HEIGHT + 10
 local PLAY_BUTTON_Y = CHARACTER_BUTTON_Y + BUTTON_HEIGHT + 10
 
-local FRAMES = 120
+local FRAMES = 117
 local SPEED = 10
 
 function Menu:enter(params)
@@ -159,7 +159,7 @@ function Menu:buildBackground()
     local frameWidth = WINDOW_WIDTH
     local frameHeight = WINDOW_HEIGHT
     local cols = 9
-    local rows = 14
+    local rows = 13
 
     for i = 0, FRAMES - 1 do
         local col = i % cols

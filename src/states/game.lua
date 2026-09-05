@@ -10,7 +10,6 @@ function Game:enter(params)
     -- Set the window size to match the dimensions of a single sprite
     love.window.setMode(BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT,{['fullscreen'] = false})
 
-    self.backgroundAnimation = love.graphics.newImage('assets/background_game_spritesheet.png')
     self:buildBackground()
 
     -- Game state
@@ -76,7 +75,7 @@ function Game:update(dt)
     self.time = self.time + dt
 
     -- Check if the current song has finished playing
-    if not self.music:isPlaying() then
+    if self.musicPlayable and not self.music:isPlaying() then
         self.currentSongIndex = self.currentSongIndex % #self.songs + 1
         self:playCurrentSong()
     end
@@ -129,8 +128,7 @@ function Game:render()
 
     -- Draw the background image
     local currentFrame = (math.floor(self.timer) % BACKGROUND_FRAMES) + 1
-    -- love.graphics.draw(self.backgroundAnimation)
-    love.graphics.draw(self.backgroundAnimation, self.backgroundFrames[currentFrame])
+    love.graphics.draw(self.backgroundFrames[currentFrame])
 
     -- Render fighters
     self.fighter1:render(self.fighter2)
@@ -312,19 +310,20 @@ function Game:drawRecoveryBars()
 end
 
 function Game:buildBackground()
+    -- The whole sheet is wider than the texture size limit of most GPUs, so
+    -- every frame is cut out into an image of its own
+    local spritesheet = love.image.newImageData('assets/background_game_spritesheet.png')
+
     self.backgroundFrames = {}
 
-    local animationWidth, animationHeight = self.backgroundAnimation:getWidth(), self.backgroundAnimation:getHeight()
-
     for currentFrame = 0, BACKGROUND_FRAMES - 1 do
-        table.insert(
-            self.backgroundFrames,
-            love.graphics.newQuad(
-                BACKGROUND_FRAME_WIDTH * currentFrame, 0,
-                BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT,
-                animationWidth, animationHeight
-            )
+        local frame = love.image.newImageData(BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT)
+        frame:paste(
+            spritesheet, 0, 0,
+            BACKGROUND_FRAME_WIDTH * currentFrame, 0,
+            BACKGROUND_FRAME_WIDTH, BACKGROUND_FRAME_HEIGHT
         )
+        table.insert(self.backgroundFrames, love.graphics.newImage(frame))
     end
 end
 
@@ -419,9 +418,16 @@ end
 
 function Game:playCurrentSong()
     local song = self.songs[self.currentSongIndex]
+    if self.music then
+        self.music:stop()
+    end
     self.music = love.audio.newSource(song.path, 'stream')
     self.music:setLooping(false)
     self.music:play()
+
+    -- Without a working audio device the source never reports playing, which
+    -- would restart the song every frame
+    self.musicPlayable = self.music:isPlaying()
 
     -- Use preloaded FFT data
     self.fftData = song.fftData
