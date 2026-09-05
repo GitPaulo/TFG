@@ -154,6 +154,7 @@ function Fighter:init(
     self.sounds = self:loadSoundFX(soundFXConfig) -- Fighter related sound effects
 
     -- Set the default animation to idle
+    self.animationKey = ANIM_STATE_IDLE
     self.currentAnimation = self.animations.idle
 end
 
@@ -693,7 +694,8 @@ function Fighter:handleClash(other)
         return
     end
 
-    SoundManager:playSound(self.sounds.clash, {preventOverlap = true})
+    -- Cloned so back to back clashes are not muted by the previous one
+    SoundManager:playSound(self.sounds.clash, {clone = true})
 
     -- Compare attack weights
     local myAttackWeight = self:getAttackWeight(self.attackType)
@@ -1131,11 +1133,24 @@ function Fighter:setAnimState(newState)
 
     -- Determine the appropriate animation for the new state, borrowing a
     -- related clip when the fighter has none, and defaulting to idle
-    local newAnimation =
-        self.animations[newState] or self.animations[ANIMATION_FALLBACKS[newState]] or self.animations.idle
-    self.currentAnimation = newAnimation
+    self.animationKey = self:resolveAnimationKey(newState)
+    self.currentAnimation = self.animations[self.animationKey]
     self.currentAnimation:gotoFrame(1)
     self.currentAnimation:resume() -- one shot clips pause themselves when done
+end
+
+-- The clip a state actually draws, so the quads and the spritesheet agree
+function Fighter:resolveAnimationKey(state)
+    if self.animations[state] then
+        return state
+    end
+
+    local fallback = ANIMATION_FALLBACKS[state]
+    if fallback and self.animations[fallback] then
+        return fallback
+    end
+
+    return ANIM_STATE_IDLE
 end
 
 function Fighter:updateDeathAnimation()
@@ -1158,8 +1173,9 @@ function Fighter:render(other)
 end
 
 function Fighter:drawSprite()
-    -- Attack states share their name with the attack type, so state is the key
-    local sprite = self.spritesheets[self.state] or self.spritesheets.idle
+    -- Follows the same borrowing as setAnimState, otherwise the quads land
+    -- outside the sheet and the fighter vanishes
+    local sprite = self.spritesheets[self.animationKey] or self.spritesheets.idle
 
     if self.currentAnimation then
         local frameWidth, frameHeight = self.currentAnimation:getDimensions()
